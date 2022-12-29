@@ -1,0 +1,9 @@
+domain: rocket.chat
+layout:
+- go.kubebuilder.io/v3
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+projectName: airlock
+repo: github.com/Rocket.Chat/airlock
+version: "3"
