@@ -1,4 +1,4 @@
-apiVersion: airlock.rocket.chat/v1alpha1
+apiVersion: airlock.cloud.rocket.chat/v1alpha1
 kind: MongoDBCluster
 metadata:
   labels:
@@ -9,4 +9,5 @@ metadata:
     app.kubernetes.io/created-by: airlock
   name: mongodbcluster-sample
 spec:
-  # TODO(user): Add fields here
+  clusterName: teste
+  connectionString: "mongo://meumonguinho/umsetdereplicas"

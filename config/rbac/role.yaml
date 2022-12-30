@@ -1,0 +1,33 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbclusters/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbclusters/status
+  verbs:
+  - get
+  - patch
+  - update

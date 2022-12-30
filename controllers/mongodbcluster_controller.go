@@ -18,8 +18,14 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -33,9 +39,9 @@ type MongoDBClusterReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=airlock.rocket.chat,resources=mongodbclusters,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=airlock.rocket.chat,resources=mongodbclusters/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=airlock.rocket.chat,resources=mongodbclusters/finalizers,verbs=update
+//+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbclusters,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbclusters/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbclusters/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -47,15 +53,39 @@ type MongoDBClusterReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.13.0/pkg/reconcile
 func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	logger.Info("Started airlock reconcile")
 
+	mongodbClusterCR := &airlockv1alpha1.MongoDBCluster{}
+
+	err := r.Get(ctx, req.NamespacedName, mongodbClusterCR)
+	if err != nil && errors.IsNotFound(err) {
+		logger.Info("Operator resource object not found.")
+
+		return ctrl.Result{}, nil
+	} else if err != nil {
+		logger.Error(err, "Error getting operator resource object")
+
+		meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "OperatorDegraded",
+				Status:             metav1.ConditionTrue,
+				Reason:             "ReasonCRNotAvailable",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("unable to get operator custom resource: %s", err.Error()),
+			})
+
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
+	} else {
+		logger.Info("mongodbClusterCR", "mongodbClusterCR", mongodbClusterCR)
+	}
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	ctrl.Log.WithName("controllers").WithName("MongoDBCluster").V(1).Info("Starting MongoDBCluster controller")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&airlockv1alpha1.MongoDBCluster{}).
 		Complete(r)

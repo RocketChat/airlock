@@ -28,14 +28,21 @@ type MongoDBClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of MongoDBCluster. Edit mongodbcluster_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// ClusterName is the cluster name that is going to be used when requesting credentials
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Required
+	ClusterName string `json:"clusterName"`
+
+	// ConnectionString that Airlock will use to connect to the cluster. It should have enough privileges to manage users and access.
+	// +kubebuilder:validation:Required
+	ConnectionString string `json:"connectionString"`
 }
 
 // MongoDBClusterStatus defines the observed state of MongoDBCluster
 type MongoDBClusterStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	Conditions []metav1.Condition `json:"conditions"`
 }
 
 //+kubebuilder:object:root=true

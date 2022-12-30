@@ -1,4 +1,4 @@
-domain: rocket.chat
+domain: cloud.rocket.chat
 layout:
 - go.kubebuilder.io/v3
 plugins:
@@ -9,9 +9,9 @@ repo: github.com/Rocket.Chat/airlock
 resources:
 - api:
     crdVersion: v1
-    namespaced: true
+    namespaced: false
   controller: true
-  domain: rocket.chat
+  domain: cloud.rocket.chat
   group: airlock
   kind: MongoDBCluster
   path: github.com/Rocket.Chat/airlock/api/v1alpha1
