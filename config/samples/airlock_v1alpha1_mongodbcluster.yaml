@@ -1,0 +1,12 @@
+apiVersion: airlock.rocket.chat/v1alpha1
+kind: MongoDBCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: mongodbcluster
+    app.kubernetes.io/instance: mongodbcluster-sample
+    app.kubernetes.io/part-of: airlock
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: airlock
+  name: mongodbcluster-sample
+spec:
+  # TODO(user): Add fields here

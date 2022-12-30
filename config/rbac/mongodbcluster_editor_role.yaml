@@ -1,0 +1,31 @@
+# permissions for end users to edit mongodbclusters.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: mongodbcluster-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: airlock
+    app.kubernetes.io/part-of: airlock
+    app.kubernetes.io/managed-by: kustomize
+  name: mongodbcluster-editor-role
+rules:
+- apiGroups:
+  - airlock.rocket.chat
+  resources:
+  - mongodbclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - airlock.rocket.chat
+  resources:
+  - mongodbclusters/status
+  verbs:
+  - get
