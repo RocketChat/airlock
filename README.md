@@ -2,7 +2,7 @@
 Airlock is an kubernetes operator that manages access and secrets for MongoDB clusters.
 
 ## Description
-Insipired by [cert-manager](https://github.com/cert-manager/cert-manager), Airlock receives requests through CustomResources to create credentials for databases on MongoDB and returns the connection string as secrets to be consumed by other  applications.
+Inspired by [cert-manager](https://github.com/cert-manager/cert-manager), Airlock receives requests through CustomResources to create credentials for databases on MongoDB and returns the connection string as secrets to be consumed by other  applications.
 
 ## Getting Started
 You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
