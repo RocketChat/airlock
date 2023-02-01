@@ -7,7 +7,6 @@ metadata:
     app.kubernetes.io/part-of: airlock
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/created-by: airlock
-  name: mongodbcluster-sample
+  name: teste-mongodb1
 spec:
-  clusterName: teste
   connectionString: "mongo://meumonguinho/umsetdereplicas"

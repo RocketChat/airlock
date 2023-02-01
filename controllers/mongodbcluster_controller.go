@@ -30,7 +30,31 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	airlockv1alpha1 "github.com/Rocket.Chat/airlock/api/v1alpha1"
+	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
+)
+
+const (
+	ReasonCRNotAvailable = "OperatorResourceNotAvailable"
+
+	ReasonOperandDeploymentNotAvailable = "OperandDeploymentNotAvailable"
+	ReasonOperandDeploymentFailed       = "OperandDeploymentFailed"
+
+	ReasonOperandServiceNotAvailable = "OperandServiceNotAvailable"
+	ReasonOperandServiceFailed       = "OperandServiceFailed"
+
+	ReasonOperandIngressNotAvailable = "OperandIngressNotAvailable"
+	ReasonOperandIngressFailed       = "OperandIngressFailed"
+
+	ReasonOperandNamespaceNotAvailable = "OperandNamespaceNotAvailable"
+	ReasonOperandNamespaceFailed       = "OperandNamespaceFailed"
+
+	ReasonOperandConfigMapNotAvailable = "OperandConfigMapNotAvailable"
+	ReasonOperandConfigMapFailed       = "OperandConfigMapFailed"
+
+	ReasonOperandStatefulSetNotAvailable = "OperandStatefulSetNotAvailable"
+	ReasonOperandStatefulSetFailed       = "OperandStatefulSetFailed"
+
+	ReasonSucceeded = "OperatorSucceeded"
 )
 
 // MongoDBClusterReconciler reconciles a MongoDBCluster object
@@ -55,10 +79,11 @@ type MongoDBClusterReconciler struct {
 func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	logger.Info("Started airlock reconcile")
+	logger.Info("Started MongoDBClusterReconciler reconcile")
 
 	mongodbClusterCR := &airlockv1alpha1.MongoDBCluster{}
 
+	// TODO: namespace? clusters should be cluster-wide.
 	err := r.Get(ctx, req.NamespacedName, mongodbClusterCR)
 	if err != nil && errors.IsNotFound(err) {
 		logger.Info("Operator resource object not found.")
@@ -71,7 +96,7 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			metav1.Condition{
 				Type:               "OperatorDegraded",
 				Status:             metav1.ConditionTrue,
-				Reason:             "ReasonCRNotAvailable",
+				Reason:             ReasonCRNotAvailable,
 				LastTransitionTime: metav1.NewTime(time.Now()),
 				Message:            fmt.Sprintf("unable to get operator custom resource: %s", err.Error()),
 			})
@@ -79,8 +104,19 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 	} else {
 		logger.Info("mongodbClusterCR", "mongodbClusterCR", mongodbClusterCR)
+
+		meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "Initializing",
+				Status:             metav1.ConditionTrue,
+				Reason:             "ReasonCRInitializing",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("Initializing cluster for: %s", mongodbClusterCR.Name),
+			})
+
 	}
-	return ctrl.Result{}, nil
+	//TODO: test connection and write access to mongo cluster
+	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 }
 
 // SetupWithManager sets up the controller with the Manager.

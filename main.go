@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	airlockv1alpha1 "github.com/Rocket.Chat/airlock/api/v1alpha1"
-	"github.com/Rocket.Chat/airlock/controllers"
+	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
+	"github.com/RocketChat/airlock/controllers"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -94,6 +94,13 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MongoDBCluster")
+		os.Exit(1)
+	}
+	if err = (&controllers.MongoDBAccessRequestReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "MongoDBAccessRequest")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

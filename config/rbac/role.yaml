@@ -8,6 +8,32 @@ rules:
 - apiGroups:
   - airlock.cloud.rocket.chat
   resources:
+  - mongodbaccessrequests
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbaccessrequests/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbaccessrequests/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
   - mongodbclusters
   verbs:
   - create

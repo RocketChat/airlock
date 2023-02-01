@@ -33,9 +33,20 @@ type MongoDBClusterSpec struct {
 	// +kubebuilder:validation:Required
 	ClusterName string `json:"clusterName"`
 
-	// ConnectionString that Airlock will use to connect to the cluster. It should have enough privileges to manage users and access.
+	// ConnectionString that Airlock will use to connect to the cluster. It should have enough privileges to manage users and access. This is not gonna be used by the created users.
 	// +kubebuilder:validation:Required
 	ConnectionString string `json:"connectionString"`
+
+	// The host that clients will receive when requesting credentials.
+	HostTemplate string `json:"hostTemplate,omitempty"`
+
+	// The port that clients will receive when requesting credentials.
+	// +kubebuilder:default=27017
+	PortTemplate string `json:"portTemplate,omitempty"`
+
+	// Extra connection string parameters that will be added to the connection string.
+	// +kubebuilder:default=?replicaSet=rs01
+	OptionsTemplate string `json:"optionsTemplate,omitempty"`
 }
 
 // MongoDBClusterStatus defines the observed state of MongoDBCluster

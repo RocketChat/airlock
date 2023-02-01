@@ -1,0 +1,13 @@
+apiVersion: airlock.cloud.rocket.chat/v1alpha1
+kind: MongoDBAccessRequest
+metadata:
+  labels:
+    app.kubernetes.io/name: mongodbaccessrequest
+    app.kubernetes.io/instance: mongodbaccessrequest-sample
+    app.kubernetes.io/part-of: airlock
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: airlock
+  name: mongodbaccessrequest-sample
+spec:
+  clusterName: teste-mongodb1
+  # TODO(user): Add fields here

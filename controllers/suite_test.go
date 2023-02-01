@@ -30,7 +30,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	airlockv1alpha1 "github.com/Rocket.Chat/airlock/api/v1alpha1"
+	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
