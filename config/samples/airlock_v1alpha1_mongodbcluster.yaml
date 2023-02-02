@@ -9,4 +9,6 @@ metadata:
     app.kubernetes.io/created-by: airlock
   name: teste-mongodb1
 spec:
-  connectionString: "mongo://meumonguinho/umsetdereplicas"
+  connectionString: "mongo://meumonguinho/?replicaSet=umsetdereplicas"
+  hostTemplate: "meumonguinho:27017"
+  optionsTemplate: ?replicaSet=umsetdereplicas

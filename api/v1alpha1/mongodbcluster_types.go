@@ -28,21 +28,14 @@ type MongoDBClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// ClusterName is the cluster name that is going to be used when requesting credentials
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:Required
-	ClusterName string `json:"clusterName"`
-
 	// ConnectionString that Airlock will use to connect to the cluster. It should have enough privileges to manage users and access. This is not gonna be used by the created users.
 	// +kubebuilder:validation:Required
 	ConnectionString string `json:"connectionString"`
 
-	// The host that clients will receive when requesting credentials.
+	// TODO: this "required" is not working for some reason...... Figure it out
+	// The host with port that clients will receive when requesting credentials.
+	// +kubebuilder:validation:Required
 	HostTemplate string `json:"hostTemplate,omitempty"`
-
-	// The port that clients will receive when requesting credentials.
-	// +kubebuilder:default=27017
-	PortTemplate string `json:"portTemplate,omitempty"`
 
 	// Extra connection string parameters that will be added to the connection string.
 	// +kubebuilder:default=?replicaSet=rs01

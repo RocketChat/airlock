@@ -35,18 +35,22 @@ spec:
           spec:
             description: MongoDBClusterSpec defines the desired state of MongoDBCluster
             properties:
-              clusterName:
-                description: ClusterName is the cluster name that is going to be used
-                  when requesting credentials
-                minLength: 1
-                type: string
               connectionString:
                 description: ConnectionString that Airlock will use to connect to
                   the cluster. It should have enough privileges to manage users and
-                  access.
+                  access. This is not gonna be used by the created users.
+                type: string
+              hostTemplate:
+                description: 'TODO: this "required" is not working for some reason......
+                  Figure it out The host with port that clients will receive when
+                  requesting credentials.'
+                type: string
+              optionsTemplate:
+                default: ?replicaSet=rs01
+                description: Extra connection string parameters that will be added
+                  to the connection string.
                 type: string
             required:
-            - clusterName
             - connectionString
             type: object
           status:

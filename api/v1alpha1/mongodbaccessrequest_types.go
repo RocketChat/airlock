@@ -28,10 +28,11 @@ type MongoDBAccessRequestSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Username to be created in the cluster.
+	// Username to be created in the cluster. If not provided, will be the same as the access request name.
 	UserName string `json:"userName,omitempty"`
 
 	// In which cluster to create the user.
+	// +kubebuilder:validation:required
 	ClusterName string `json:"clusterName,omitempty"`
 
 	// Password to be used for the user. If not provided, a random password will be generated.

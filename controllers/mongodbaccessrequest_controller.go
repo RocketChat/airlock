@@ -18,11 +18,11 @@ package controllers
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"time"
 
 	"github.com/RocketChat/airlock/controllers/hash"
+	"github.com/thanhpk/randstr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -100,18 +100,17 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 	// TODO: username and password validation?
 
 	// TODO: Get namespace from the operator
+	// TODO: error handling
+	r.generateAttributes(ctx, mongodbAccessRequestCR)
 	r.Get(ctx, types.NamespacedName{Namespace: "airlock-system", Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
-
-	// TODO: generate database if empty and store it on CR
-
-	// TODO: generate password if empty and store on CR
-
-	// TODO: generate secretname if empty and store on CR
 
 	// Connect to mongo and create user with that password
 	//client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
 
-	// TODO: create secret with connection string
+	err = r.reconcileSecret(ctx, req, mongodbAccessRequestCR, mongodbClusterCR)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 }
@@ -130,11 +129,10 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 	create := false
 
 	// TODO: does this need sanitization?
-	connectionString := fmt.Sprintf("mongodb://%s:%s@%s:%s/%s%s",
+	connectionString := fmt.Sprintf("mongodb://%s:%s@%s/%s%s",
 		mongodbAccessRequestCR.Spec.UserName,
 		mongodbAccessRequestCR.Spec.Password,
 		mongodbClusterCR.Spec.HostTemplate,
-		mongodbClusterCR.Spec.PortTemplate,
 		mongodbAccessRequestCR.Spec.Database,
 		mongodbClusterCR.Spec.OptionsTemplate)
 
@@ -151,7 +149,7 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 				Namespace: req.Namespace,
 			},
 			Data: map[string][]byte{
-				"connectionString": []byte(base64.StdEncoding.EncodeToString([]byte(connectionString))),
+				"connectionString": []byte(connectionString),
 			},
 		}
 	} else if err != nil {
@@ -169,17 +167,17 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 		return utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
-	connectionSecret.Data["connectionString"] = []byte(base64.StdEncoding.EncodeToString([]byte(connectionString)))
+	connectionSecret.Data["connectionString"] = []byte(connectionString)
 
 	_ = ctrl.SetControllerReference(mongodbAccessRequestCR, connectionSecret, r.Scheme)
 	expectedHash := hash.Object(connectionSecret.Data)
 	actualHash := connectionSecret.Annotations["ResourceHash"] // zero value ok
 	if create {
-		logger.Info(fmt.Sprintf("creating RocketChat ingress %q: expected hash: %q", req.NamespacedName, expectedHash))
+		logger.Info(fmt.Sprintf("creating secret %q: expected hash: %q", req.NamespacedName, expectedHash))
 
 		err = r.Create(ctx, connectionSecret)
 	} else if expectedHash != actualHash {
-		logger.Info(fmt.Sprintf("updating RocketChat ingress %q: expected hash %q does not match actual hash %q", req.NamespacedName, expectedHash, actualHash))
+		logger.Info(fmt.Sprintf("updating secret %q: expected hash %q does not match actual hash %q", req.NamespacedName, expectedHash, actualHash))
 
 		err = r.Update(ctx, connectionSecret)
 	}
@@ -188,12 +186,44 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 			metav1.Condition{
 				Type:               "Error",
 				Status:             metav1.ConditionTrue,
-				Reason:             ReasonOperandIngressFailed,
+				Reason:             "Failed to update secret",
 				LastTransitionTime: metav1.NewTime(time.Now()),
 				Message:            fmt.Sprintf("unable to update secret %q: %s", req.NamespacedName, err.Error()),
 			})
 
 		return utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+	}
+	return nil
+}
+
+func (r *MongoDBAccessRequestReconciler) generateAttributes(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest) error {
+	changed := false
+
+	if mongodbAccessRequestCR.Spec.Database == "" {
+		mongodbAccessRequestCR.Spec.Database = mongodbAccessRequestCR.Name
+		changed = true
+	}
+
+	if mongodbAccessRequestCR.Spec.UserName == "" {
+		mongodbAccessRequestCR.Spec.UserName = mongodbAccessRequestCR.Name
+		changed = true
+	}
+
+	if mongodbAccessRequestCR.Spec.SecretName == "" {
+		mongodbAccessRequestCR.Spec.SecretName = mongodbAccessRequestCR.Name
+		changed = true
+	}
+
+	if mongodbAccessRequestCR.Spec.Password == "" {
+		mongodbAccessRequestCR.Spec.Password = randstr.String(16)
+		changed = true
+	}
+
+	if changed {
+		err := r.Update(ctx, mongodbAccessRequestCR)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
