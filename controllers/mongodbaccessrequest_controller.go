@@ -19,10 +19,15 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/RocketChat/airlock/controllers/hash"
 	"github.com/thanhpk/randstr"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -94,20 +99,41 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 
 	mongodbClusterCR := &airlockv1alpha1.MongoDBCluster{}
 
-	// Get mongo cluster from given name
-	mongodbClusterCR.Name = req.Name
-
 	// TODO: username and password validation?
 
+	// TODO: more status updates
+	err = r.generateAttributes(ctx, mongodbAccessRequestCR)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	// TODO: Get namespace from the operator
-	// TODO: error handling
-	r.generateAttributes(ctx, mongodbAccessRequestCR)
-	r.Get(ctx, types.NamespacedName{Namespace: "airlock-system", Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
+	err = r.Get(ctx, types.NamespacedName{Namespace: "airlock-system", Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
-	// Connect to mongo and create user with that password
-	//client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
+	// We need to try to read the password from the secret before anything, because if it exists, we need to use it
+	// If it doesn't exist yet, one will be generated
+	userPassword, err := r.readPasswordOrGenerate(ctx, req, mongodbAccessRequestCR)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
-	err = r.reconcileSecret(ctx, req, mongodbAccessRequestCR, mongodbClusterCR)
+	// TODO: does this need sanitization?
+	connectionString := fmt.Sprintf("mongodb://%s:%s@%s/%s%s",
+		mongodbAccessRequestCR.Spec.UserName,
+		userPassword,
+		mongodbClusterCR.Spec.HostTemplate,
+		mongodbAccessRequestCR.Spec.Database,
+		mongodbClusterCR.Spec.OptionsTemplate)
+
+	err = r.reconcileMongoDBUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, connectionString, userPassword)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	//TODO: if this step fails and the secret is empty, it's going to indefinitely keep regenerating the password on the DB. Is this a problem?
+	err = r.reconcileSecret(ctx, req, mongodbAccessRequestCR, connectionString, userPassword)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -122,21 +148,36 @@ func (r *MongoDBAccessRequestReconciler) SetupWithManager(mgr ctrl.Manager) erro
 		Complete(r)
 }
 
-func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, req ctrl.Request, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster) error {
+// Read password from secret
+func (r *MongoDBAccessRequestReconciler) readPasswordOrGenerate(ctx context.Context, req ctrl.Request, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest) (string, error) {
+	logger := log.FromContext(ctx)
+
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: mongodbAccessRequestCR.Spec.SecretName}, secret)
+
+	if err != nil && errors.IsNotFound(err) {
+		logger.Info("Secret " + mongodbAccessRequestCR.Spec.SecretName + " not found.")
+
+		return randstr.String(16), nil
+	} else if err != nil {
+		logger.Error(err, "Error getting secret to read password from.")
+
+		return "", err
+	}
+	if string(secret.Data["password"]) == "" {
+		logger.Info("Password not found in secret " + mongodbAccessRequestCR.Spec.SecretName + ". Generating a new one.")
+		return randstr.String(16), nil
+	}
+	return string(secret.Data["password"]), nil
+}
+
+func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, req ctrl.Request, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, connectionString string, password string) error {
 	logger := log.FromContext(ctx)
 
 	connectionSecret := &corev1.Secret{}
 	create := false
 
-	// TODO: does this need sanitization?
-	connectionString := fmt.Sprintf("mongodb://%s:%s@%s/%s%s",
-		mongodbAccessRequestCR.Spec.UserName,
-		mongodbAccessRequestCR.Spec.Password,
-		mongodbClusterCR.Spec.HostTemplate,
-		mongodbAccessRequestCR.Spec.Database,
-		mongodbClusterCR.Spec.OptionsTemplate)
-
-	logger.Info("Reconciling secret for " + mongodbAccessRequestCR.Name + " using cluster " + mongodbClusterCR.Name)
+	logger.Info("Reconciling secret for " + mongodbAccessRequestCR.Name)
 
 	err := r.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: mongodbAccessRequestCR.Spec.SecretName}, connectionSecret)
 
@@ -150,10 +191,11 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 			},
 			Data: map[string][]byte{
 				"connectionString": []byte(connectionString),
+				"password":         []byte(password),
 			},
 		}
 	} else if err != nil {
-		logger.Error(err, fmt.Sprintf("Error getting existing RocketChat ingress: %q", req.NamespacedName))
+		logger.Error(err, fmt.Sprintf("Error getting existing secret: %q", req.NamespacedName))
 
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 			metav1.Condition{
@@ -168,6 +210,7 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 	}
 
 	connectionSecret.Data["connectionString"] = []byte(connectionString)
+	connectionSecret.Data["password"] = []byte(password)
 
 	_ = ctrl.SetControllerReference(mongodbAccessRequestCR, connectionSecret, r.Scheme)
 	expectedHash := hash.Object(connectionSecret.Data)
@@ -214,11 +257,6 @@ func (r *MongoDBAccessRequestReconciler) generateAttributes(ctx context.Context,
 		changed = true
 	}
 
-	if mongodbAccessRequestCR.Spec.Password == "" {
-		mongodbAccessRequestCR.Spec.Password = randstr.String(16)
-		changed = true
-	}
-
 	if changed {
 		err := r.Update(ctx, mongodbAccessRequestCR)
 		if err != nil {
@@ -228,12 +266,51 @@ func (r *MongoDBAccessRequestReconciler) generateAttributes(ctx context.Context,
 	return nil
 }
 
-func (r *MongoDBAccessRequestReconciler) createMongoDBUser(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest) error {
+func (r *MongoDBAccessRequestReconciler) reconcileMongoDBUser(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, userConnectionString string, userPassword string) error {
 	logger := log.FromContext(ctx)
 
-	logger.Info("Creating MongoDB user")
+	logger.Info("Reconciling MongoDB user")
 
-	//TODO: everything
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongodbClusterCR.Spec.ConnectionString))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err = client.Disconnect(ctx); err != nil {
+			logger.Error(err, "Error disconnecting from MongoDB")
+		}
+	}()
 
+	// Connect to the database as created user
+	userClient, err := mongo.Connect(ctx, options.Client().ApplyURI(userConnectionString))
+	logger.Info(userConnectionString)
+
+	// Test if the user access is working
+	err = userClient.Ping(ctx, readpref.Primary())
+	userClient.Disconnect(ctx)
+	if err == nil {
+		// If the user access is working, we don't need to do anything
+		return nil
+	}
+	logger.Info("User access is not working, creating user")
+	// Create the user
+	result := client.Database(mongodbAccessRequestCR.Spec.Database).RunCommand(context.Background(), bson.D{{Key: "createUser", Value: mongodbAccessRequestCR.Spec.UserName},
+		{Key: "pwd", Value: userPassword}, {Key: "roles", Value: []bson.M{{"role": "readWrite", "db": mongodbAccessRequestCR.Spec.Database}}}})
+	if result.Err() != nil {
+		if strings.Contains(result.Err().Error(), "already exists") {
+			// If user already exists, ensure the password is correct
+			logger.Info("User " + mongodbAccessRequestCR.Spec.UserName + " already exists, updating password")
+			result = client.Database(mongodbAccessRequestCR.Spec.Database).RunCommand(context.Background(), bson.D{{Key: "updateUser", Value: mongodbAccessRequestCR.Spec.UserName},
+				{Key: "pwd", Value: userPassword}})
+			if result.Err() != nil {
+				logger.Error(result.Err(), "Error updating MongoDB user")
+				return result.Err()
+			}
+			return nil
+		}
+		logger.Error(result.Err(), "Error creating MongoDB user")
+		return result.Err()
+	}
+	logger.Info("Successfully created MongoDB user "+mongodbAccessRequestCR.Spec.UserName, " on ", mongodbAccessRequestCR.Spec.Database)
 	return nil
 }

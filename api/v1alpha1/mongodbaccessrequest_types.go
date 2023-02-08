@@ -35,9 +35,6 @@ type MongoDBAccessRequestSpec struct {
 	// +kubebuilder:validation:required
 	ClusterName string `json:"clusterName,omitempty"`
 
-	// Password to be used for the user. If not provided, a random password will be generated.
-	Password string `json:"password,omitempty"`
-
 	// Database to be used for the user. If not provided, the user will have access to one that matches the access request name
 	Database string `json:"database,omitempty"`
 

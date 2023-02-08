@@ -43,10 +43,6 @@ spec:
                 description: Database to be used for the user. If not provided, the
                   user will have access to one that matches the access request name
                 type: string
-              password:
-                description: Password to be used for the user. If not provided, a
-                  random password will be generated.
-                type: string
               secretName:
                 description: Secret name where the credentials will be stored. If
                   not provided, will be the same as the access request name.
