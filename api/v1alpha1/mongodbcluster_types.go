@@ -29,6 +29,7 @@ type MongoDBClusterSpec struct {
 	ConnectionString string `json:"connectionString"`
 
 	// TODO: this "required" is not working for some reason...... Figure it out
+
 	// The host with port that clients will receive when requesting credentials.
 	// +kubebuilder:validation:Required
 	HostTemplate string `json:"hostTemplate,omitempty"`
@@ -40,8 +41,6 @@ type MongoDBClusterSpec struct {
 
 // MongoDBClusterStatus defines the observed state of MongoDBCluster
 type MongoDBClusterStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 	Conditions []metav1.Condition `json:"conditions"`
 }
 

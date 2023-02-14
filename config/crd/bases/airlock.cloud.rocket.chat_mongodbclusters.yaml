@@ -47,9 +47,8 @@ spec:
                   access. This is not gonna be used by the created users.
                 type: string
               hostTemplate:
-                description: 'TODO: this "required" is not working for some reason......
-                  Figure it out The host with port that clients will receive when
-                  requesting credentials.'
+                description: The host with port that clients will receive when requesting
+                  credentials.
                 type: string
               optionsTemplate:
                 default: ?replicaSet=rs01
@@ -63,9 +62,6 @@ spec:
             description: MongoDBClusterStatus defines the observed state of MongoDBCluster
             properties:
               conditions:
-                description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
-                  of cluster Important: Run "make" to regenerate code after modifying
-                  this file'
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource. --- This struct is intended for direct
