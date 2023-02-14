@@ -48,6 +48,7 @@ type MongoDBAccessRequestStatus struct {
 //+kubebuilder:subresource:status
 
 // MongoDBAccessRequest is the Schema for the mongodbaccessrequests API
+// +kubebuilder:printcolumn:name="Cluster",type=string,JSONPath=`.spec.clusterName`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type MongoDBAccessRequest struct {
