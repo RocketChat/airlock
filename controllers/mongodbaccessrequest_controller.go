@@ -78,9 +78,9 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 			metav1.Condition{
-				Type:               "Degraded",
-				Status:             metav1.ConditionTrue,
-				Reason:             ReasonCRNotAvailable,
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "CustomResourceNotReady",
 				LastTransitionTime: metav1.NewTime(time.Now()),
 				Message:            fmt.Sprintf("unable to get operator custom resource: %s", err.Error()),
 			})
@@ -90,9 +90,9 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 
 	meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 		metav1.Condition{
-			Type:               "Initializing",
-			Status:             metav1.ConditionTrue,
-			Reason:             "ReasonCRInitializing",
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "InitializingAccessRequest",
 			LastTransitionTime: metav1.NewTime(time.Now()),
 			Message:            fmt.Sprintf("Initializing access request for: %s", mongodbAccessRequestCR.Name),
 		})
@@ -138,6 +138,8 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
+	_ = ctrl.SetControllerReference(mongodbClusterCR, mongodbAccessRequestCR, r.Scheme)
+
 	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 }
 
@@ -145,6 +147,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 func (r *MongoDBAccessRequestReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&airlockv1alpha1.MongoDBAccessRequest{}).
+		Owns(&corev1.Secret{}).
 		Complete(r)
 }
 
@@ -199,8 +202,8 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 			metav1.Condition{
-				Type:               "Error",
-				Status:             metav1.ConditionTrue,
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
 				Reason:             "UnableToGetSecret",
 				LastTransitionTime: metav1.NewTime(time.Now()),
 				Message:            fmt.Sprintf("unable to get secret %q: %s", req.NamespacedName, err.Error()),
@@ -209,12 +212,13 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 		return utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
+	actualHash := hash.Object(connectionSecret.Data)
+
 	connectionSecret.Data["connectionString"] = []byte(connectionString)
 	connectionSecret.Data["password"] = []byte(password)
 
 	_ = ctrl.SetControllerReference(mongodbAccessRequestCR, connectionSecret, r.Scheme)
 	expectedHash := hash.Object(connectionSecret.Data)
-	actualHash := connectionSecret.Annotations["ResourceHash"] // zero value ok
 	if create {
 		logger.Info(fmt.Sprintf("creating secret %q: expected hash: %q", req.NamespacedName, expectedHash))
 
@@ -227,8 +231,8 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 	if err != nil {
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 			metav1.Condition{
-				Type:               "Error",
-				Status:             metav1.ConditionTrue,
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
 				Reason:             "Failed to update secret",
 				LastTransitionTime: metav1.NewTime(time.Now()),
 				Message:            fmt.Sprintf("unable to update secret %q: %s", req.NamespacedName, err.Error()),
@@ -283,7 +287,6 @@ func (r *MongoDBAccessRequestReconciler) reconcileMongoDBUser(ctx context.Contex
 
 	// Connect to the database as created user
 	userClient, err := mongo.Connect(ctx, options.Client().ApplyURI(userConnectionString))
-	logger.Info(userConnectionString)
 
 	// Test if the user access is working
 	err = userClient.Ping(ctx, readpref.Primary())

@@ -20,13 +20,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // MongoDBClusterSpec defines the desired state of MongoDBCluster
+
 type MongoDBClusterSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 
 	// ConnectionString that Airlock will use to connect to the cluster. It should have enough privileges to manage users and access. This is not gonna be used by the created users.
 	// +kubebuilder:validation:Required
@@ -53,6 +49,8 @@ type MongoDBClusterStatus struct {
 //+kubebuilder:subresource:status
 
 // MongoDBCluster is the Schema for the mongodbclusters API
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type MongoDBCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

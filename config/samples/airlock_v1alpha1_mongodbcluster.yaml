@@ -1,12 +1,6 @@
 apiVersion: airlock.cloud.rocket.chat/v1alpha1
 kind: MongoDBCluster
 metadata:
-  labels:
-    app.kubernetes.io/name: mongodbcluster
-    app.kubernetes.io/instance: mongodbcluster-sample
-    app.kubernetes.io/part-of: airlock
-    app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/created-by: airlock
   name: teste-mongodb1
 spec:
   connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/admin?replicaSet=rs0"

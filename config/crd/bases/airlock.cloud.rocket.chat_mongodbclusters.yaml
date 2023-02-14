@@ -15,7 +15,14 @@ spec:
     singular: mongodbcluster
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: MongoDBCluster is the Schema for the mongodbclusters API
@@ -33,7 +40,6 @@ spec:
           metadata:
             type: object
           spec:
-            description: MongoDBClusterSpec defines the desired state of MongoDBCluster
             properties:
               connectionString:
                 description: ConnectionString that Airlock will use to connect to

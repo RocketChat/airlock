@@ -21,6 +21,10 @@ import (
 	"fmt"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,30 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
-)
-
-const (
-	ReasonCRNotAvailable = "OperatorResourceNotAvailable"
-
-	ReasonOperandDeploymentNotAvailable = "OperandDeploymentNotAvailable"
-	ReasonOperandDeploymentFailed       = "OperandDeploymentFailed"
-
-	ReasonOperandServiceNotAvailable = "OperandServiceNotAvailable"
-	ReasonOperandServiceFailed       = "OperandServiceFailed"
-
-	ReasonOperandIngressNotAvailable = "OperandIngressNotAvailable"
-	ReasonOperandIngressFailed       = "OperandIngressFailed"
-
-	ReasonOperandNamespaceNotAvailable = "OperandNamespaceNotAvailable"
-	ReasonOperandNamespaceFailed       = "OperandNamespaceFailed"
-
-	ReasonOperandConfigMapNotAvailable = "OperandConfigMapNotAvailable"
-	ReasonOperandConfigMapFailed       = "OperandConfigMapFailed"
-
-	ReasonOperandStatefulSetNotAvailable = "OperandStatefulSetNotAvailable"
-	ReasonOperandStatefulSetFailed       = "OperandStatefulSetFailed"
-
-	ReasonSucceeded = "OperatorSucceeded"
 )
 
 // MongoDBClusterReconciler reconciles a MongoDBCluster object
@@ -94,28 +74,38 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
 			metav1.Condition{
-				Type:               "OperatorDegraded",
-				Status:             metav1.ConditionTrue,
-				Reason:             ReasonCRNotAvailable,
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "OperatorResourceNotAvailable",
 				LastTransitionTime: metav1.NewTime(time.Now()),
 				Message:            fmt.Sprintf("unable to get operator custom resource: %s", err.Error()),
 			})
 
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
-	} else {
-		logger.Info("mongodbClusterCR", "mongodbClusterCR", mongodbClusterCR)
+	}
 
+	//Test connection and user permissions
+	err = testConnection(ctx, mongodbClusterCR)
+	if err != nil {
 		meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
 			metav1.Condition{
-				Type:               "Initializing",
-				Status:             metav1.ConditionTrue,
-				Reason:             "ReasonCRInitializing",
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "MongoConnectionFailed",
 				LastTransitionTime: metav1.NewTime(time.Now()),
-				Message:            fmt.Sprintf("Initializing cluster for: %s", mongodbClusterCR.Name),
+				Message:            fmt.Sprintf("mongo connection failed: %s", err.Error()),
 			})
-
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 	}
-	//TODO: test connection and write access to mongo cluster
+
+	meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
+		metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionTrue,
+			Reason:             "ClusterInitialized",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Message:            "Cluster is ready",
+		})
 	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 }
 
@@ -124,5 +114,50 @@ func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctrl.Log.WithName("controllers").WithName("MongoDBCluster").V(1).Info("Starting MongoDBCluster controller")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&airlockv1alpha1.MongoDBCluster{}).
+		Owns(&airlockv1alpha1.MongoDBAccessRequest{}).
 		Complete(r)
+}
+
+func testConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster) error {
+	logger := log.FromContext(ctx)
+
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongodbClusterCR.Spec.ConnectionString))
+	if err != nil {
+		logger.Error(err, "Couldn't connect to mongodb for cluster "+mongodbClusterCR.Name)
+		return err
+	}
+
+	// Retrieve the current user's roles and privileges
+	var result map[string]interface{}
+	err = client.Database("admin").RunCommand(ctx, bson.D{{Key: "connectionStatus", Value: 1}}).Decode(&result)
+	if err != nil {
+		logger.Error(err, "Couldn't retrieve user info for cluster "+mongodbClusterCR.Name)
+		return err
+	}
+
+	// Check if the current user has the necessary privilege in any of their roles
+	hasPrivilege := false
+	roles := result["authInfo"].(map[string]interface{})["authenticatedUserRoles"].(primitive.A)
+	for _, role := range roles {
+		if role.(map[string]interface{})["privileges"] != nil {
+			for _, privilege := range role.(map[string]interface{})["privileges"].([]interface{}) {
+				if privilege.(map[string]interface{})["actions"].(map[string]interface{})["userAdmin"].(bool) {
+					hasPrivilege = true
+					break
+				}
+			}
+		}
+		if role.(map[string]interface{})["role"] == "userAdminAnyDatabase" {
+			hasPrivilege = true
+			break
+		}
+	}
+	if !hasPrivilege {
+		err = errors.NewUnauthorized("User can't create new users")
+		logger.Error(err, "User doesn't have privilege in cluster "+mongodbClusterCR.Name)
+
+		return err
+	}
+	return nil
+
 }
