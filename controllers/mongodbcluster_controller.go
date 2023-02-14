@@ -114,7 +114,6 @@ func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctrl.Log.WithName("controllers").WithName("MongoDBCluster").V(1).Info("Starting MongoDBCluster controller")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&airlockv1alpha1.MongoDBCluster{}).
-		Owns(&airlockv1alpha1.MongoDBAccessRequest{}).
 		Complete(r)
 }
 

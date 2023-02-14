@@ -104,19 +104,43 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 	// TODO: more status updates
 	err = r.generateAttributes(ctx, mongodbAccessRequestCR)
 	if err != nil {
-		return ctrl.Result{}, err
+		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "AttributeGenerationFailed",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("Attribute generation failed with error: %s", err.Error()),
+			})
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 	// TODO: Get namespace from the operator
 	err = r.Get(ctx, types.NamespacedName{Namespace: "airlock-system", Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
 	if err != nil {
-		return ctrl.Result{}, err
+		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "GetMongoDBClusterFailed",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("Failed to get MongoDBCluster resource for %s: %s", mongodbAccessRequestCR.Spec.ClusterName, err.Error()),
+			})
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
 	// We need to try to read the password from the secret before anything, because if it exists, we need to use it
 	// If it doesn't exist yet, one will be generated
 	userPassword, err := r.readPasswordOrGenerate(ctx, req, mongodbAccessRequestCR)
 	if err != nil {
-		return ctrl.Result{}, err
+		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "GetSecretFailed",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("Failed to get secret resource for %s: %s", mongodbAccessRequestCR.Spec.SecretName, err.Error()),
+			})
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
 	// TODO: does this need sanitization?
@@ -129,18 +153,48 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 
 	err = r.reconcileMongoDBUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, connectionString, userPassword)
 	if err != nil {
-		return ctrl.Result{}, err
+		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "UpdateMongoFailed",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("Failed to create or update user on mongodb: %s", err.Error()),
+			})
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
 	//TODO: if this step fails and the secret is empty, it's going to indefinitely keep regenerating the password on the DB. Is this a problem?
 	err = r.reconcileSecret(ctx, req, mongodbAccessRequestCR, connectionString, userPassword)
 	if err != nil {
-		return ctrl.Result{}, err
+		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "SecretUpdateFailed",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("Unable to update secret %q: %s", req.NamespacedName, err.Error()),
+			})
+
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
-	_ = ctrl.SetControllerReference(mongodbClusterCR, mongodbAccessRequestCR, r.Scheme)
+	// _ = ctrl.SetControllerReference(mongodbClusterCR, mongodbAccessRequestCR, r.Scheme)
 
-	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+	// If we are already Ready == true, dont update it again
+	if mongodbAccessRequestCR.Status.Conditions[0].Status != metav1.ConditionTrue {
+
+		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionTrue,
+				Reason:             "AccessRequestGranted",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("Access request granted for %s", mongodbAccessRequestCR.Name),
+			})
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+	}
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -199,17 +253,7 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 		}
 	} else if err != nil {
 		logger.Error(err, fmt.Sprintf("Error getting existing secret: %q", req.NamespacedName))
-
-		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
-			metav1.Condition{
-				Type:               "Ready",
-				Status:             metav1.ConditionFalse,
-				Reason:             "UnableToGetSecret",
-				LastTransitionTime: metav1.NewTime(time.Now()),
-				Message:            fmt.Sprintf("unable to get secret %q: %s", req.NamespacedName, err.Error()),
-			})
-
-		return utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+		return err
 	}
 
 	actualHash := hash.Object(connectionSecret.Data)
@@ -229,16 +273,7 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 		err = r.Update(ctx, connectionSecret)
 	}
 	if err != nil {
-		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
-			metav1.Condition{
-				Type:               "Ready",
-				Status:             metav1.ConditionFalse,
-				Reason:             "Failed to update secret",
-				LastTransitionTime: metav1.NewTime(time.Now()),
-				Message:            fmt.Sprintf("unable to update secret %q: %s", req.NamespacedName, err.Error()),
-			})
-
-		return utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+		return err
 	}
 	return nil
 }

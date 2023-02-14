@@ -20,13 +20,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // MongoDBAccessRequestSpec defines the desired state of MongoDBAccessRequest
 type MongoDBAccessRequestSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 
 	// Username to be created in the cluster. If not provided, will be the same as the access request name.
 	UserName string `json:"userName,omitempty"`
@@ -44,8 +39,6 @@ type MongoDBAccessRequestSpec struct {
 
 // MongoDBAccessRequestStatus defines the observed state of MongoDBAccessRequest
 type MongoDBAccessRequestStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 
 	// Conditions is the list of status condition updates
 	Conditions []metav1.Condition `json:"conditions"`
@@ -55,6 +48,8 @@ type MongoDBAccessRequestStatus struct {
 //+kubebuilder:subresource:status
 
 // MongoDBAccessRequest is the Schema for the mongodbaccessrequests API
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type MongoDBAccessRequest struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
