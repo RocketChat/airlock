@@ -88,20 +88,8 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
-	meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
-		metav1.Condition{
-			Type:               "Ready",
-			Status:             metav1.ConditionFalse,
-			Reason:             "InitializingAccessRequest",
-			LastTransitionTime: metav1.NewTime(time.Now()),
-			Message:            fmt.Sprintf("Initializing access request for: %s", mongodbAccessRequestCR.Name),
-		})
-
 	mongodbClusterCR := &airlockv1alpha1.MongoDBCluster{}
 
-	// TODO: username and password validation?
-
-	// TODO: more status updates
 	err = r.generateAttributes(ctx, mongodbAccessRequestCR)
 	if err != nil {
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
