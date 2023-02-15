@@ -102,6 +102,7 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			LastTransitionTime: metav1.NewTime(time.Now()),
 			Message:            "Cluster is ready",
 		})
+	r.updateAccessRequests(ctx, req, mongodbClusterCR.Name)
 	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 }
 
@@ -153,4 +154,42 @@ func testConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.Mongo
 	}
 	return nil
 
+}
+
+func (r *MongoDBClusterReconciler) updateAccessRequests(ctx context.Context, req ctrl.Request, clusterName string) error {
+	logger := log.FromContext(ctx)
+
+	logger.Info("Cluster " + clusterName + " updated. Setting out of date status on AccessRequests")
+
+	accessRequestList := &airlockv1alpha1.MongoDBAccessRequestList{}
+	err := r.List(ctx, accessRequestList, []client.ListOption{
+		// client.MatchingFields{"spec.clusterName": clusterName},
+		/* to be able to use this, we need to set
+		      storage:
+		        indices:
+		        - fields:
+		          - spec.clusterName
+			on the CRD, but I can't, because it seems kubebuilder doesn't support adding that.
+			so intead, we'll get all the resources in the cluster an iterate over them. Such is life.
+		*/
+	}...)
+	if err != nil {
+		logger.Error(err, "Failed to fetch access requests")
+		return err
+	}
+
+	for _, accessRequest := range accessRequestList.Items {
+		if accessRequest.Spec.ClusterName == clusterName {
+			meta.SetStatusCondition(&accessRequest.Status.Conditions,
+				metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "ClusterOutOfDate",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					Message:            fmt.Sprintf("Cluster %s is out of date", clusterName),
+				})
+			r.Status().Update(ctx, &accessRequest)
+		}
+	}
+	return nil
 }
