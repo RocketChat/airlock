@@ -171,6 +171,7 @@ func (r *MongoDBClusterReconciler) updateAccessRequests(ctx context.Context, req
 		          - spec.clusterName
 			on the CRD, but I can't, because it seems kubebuilder doesn't support adding that.
 			so intead, we'll get all the resources in the cluster an iterate over them. Such is life.
+			Also, with the current filter, this applies to ALL namespaces, but I don't have a way to get "namespaces that reference this particular operator"
 		*/
 	}...)
 	if err != nil {

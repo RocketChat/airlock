@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RocketChat/airlock/controllers/env"
 	"github.com/RocketChat/airlock/controllers/hash"
 	"github.com/thanhpk/randstr"
 	"go.mongodb.org/mongo-driver/bson"
@@ -51,6 +52,7 @@ type MongoDBAccessRequestReconciler struct {
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbaccessrequests,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbaccessrequests/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbaccessrequests/finalizers,verbs=update
+//+kubebuilder:rbac:groups="";apps;networking.k8s.io,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -102,8 +104,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 			})
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
-	// TODO: Get namespace from the operator
-	err = r.Get(ctx, types.NamespacedName{Namespace: "airlock-system", Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
+	err = r.Get(ctx, types.NamespacedName{Namespace: env.OPERATOR_NAMESPACE, Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
 	if err != nil {
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 			metav1.Condition{
@@ -314,11 +315,15 @@ func (r *MongoDBAccessRequestReconciler) reconcileMongoDBUser(ctx context.Contex
 	// Test if the user access is working
 	err = userClient.Ping(ctx, readpref.Primary())
 	userClient.Disconnect(ctx)
-	if err == nil {
+	if err == nil && !env.FORCE_USER_UPDATE {
 		// If the user access is working, we don't need to do anything
 		return nil
 	}
-	logger.Info("User access is not working, creating user")
+	if env.FORCE_USER_UPDATE {
+		logger.Info("Force updating user " + mongodbAccessRequestCR.Spec.UserName + " on cluster " + mongodbAccessRequestCR.Spec.ClusterName)
+	} else {
+		logger.Info("User access is not working, creating user " + mongodbAccessRequestCR.Spec.UserName + " on cluster " + mongodbAccessRequestCR.Spec.ClusterName)
+	}
 	// Create the user
 	result := client.Database(mongodbAccessRequestCR.Spec.Database).RunCommand(context.Background(), bson.D{{Key: "createUser", Value: mongodbAccessRequestCR.Spec.UserName},
 		{Key: "pwd", Value: userPassword}, {Key: "roles", Value: []bson.M{{"role": "readWrite", "db": mongodbAccessRequestCR.Spec.Database}}}})

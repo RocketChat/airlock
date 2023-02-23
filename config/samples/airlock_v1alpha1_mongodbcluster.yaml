@@ -3,6 +3,6 @@ kind: MongoDBCluster
 metadata:
   name: teste-mongodb1
 spec:
-  connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/admin?replicaSet=rs0"
+  connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/test?replicaSet=rs0"
   hostTemplate: "mongodb.airlock-test"
   optionsTemplate: ?replicaSet=rs0
