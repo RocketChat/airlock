@@ -168,22 +168,17 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
-	// _ = ctrl.SetControllerReference(mongodbClusterCR, mongodbAccessRequestCR, r.Scheme)
+	// all ok
+	meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+		metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionTrue,
+			Reason:             "AccessRequestGranted",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Message:            fmt.Sprintf("Access request granted for %s", mongodbAccessRequestCR.Name),
+		})
 
-	// If we are already Ready == true, dont update it again
-	if mongodbAccessRequestCR.Status.Conditions[0].Status != metav1.ConditionTrue {
-
-		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
-			metav1.Condition{
-				Type:               "Ready",
-				Status:             metav1.ConditionTrue,
-				Reason:             "AccessRequestGranted",
-				LastTransitionTime: metav1.NewTime(time.Now()),
-				Message:            fmt.Sprintf("Access request granted for %s", mongodbAccessRequestCR.Name),
-			})
-		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
-	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 }
 
 // SetupWithManager sets up the controller with the Manager.
