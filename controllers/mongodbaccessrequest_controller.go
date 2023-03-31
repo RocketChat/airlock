@@ -106,7 +106,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 			})
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
-	err = r.Get(ctx, types.NamespacedName{Namespace: env.OPERATOR_NAMESPACE, Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
+	err = r.Get(ctx, types.NamespacedName{Namespace: env.DBCLUSTER_NAMESPACE, Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
 	if err != nil {
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 			metav1.Condition{
@@ -186,9 +186,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
-	// _ = ctrl.SetControllerReference(mongodbClusterCR, mongodbAccessRequestCR, r.Scheme)
-
-	// If we are already Ready == true, dont update it again
+  // If we are already Ready == true, dont update it again
 	if len(mongodbAccessRequestCR.Status.Conditions) == 0 || mongodbAccessRequestCR.Status.Conditions[0].Status != metav1.ConditionTrue {
 
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
