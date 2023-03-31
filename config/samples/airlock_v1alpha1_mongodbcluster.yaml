@@ -6,3 +6,18 @@ spec:
   connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/test?replicaSet=rs0"
   hostTemplate: "mongodb.airlock-test"
   optionsTemplate: ?replicaSet=rs0
+ 
+---
+
+apiVersion: airlock.cloud.rocket.chat/v1alpha1
+kind: MongoDBCluster
+metadata:
+  name: teste-atlas1
+spec:
+  useAtlasAPI: true
+  hostTemplate: "cluster0.vpz0mct.mongodb.net"
+  optionsTemplate: ?retryWrites=true&w=majority
+  prefixTemplate: mongodb+srv
+  atlasGroupID: 642639f688ee744b5e440fca
+  atlasPublicKey: qasqmibv
+  atlasPrivateKey: ?????

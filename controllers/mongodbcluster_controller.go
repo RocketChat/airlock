@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/mongodb-forks/digest"
+	"go.mongodb.org/atlas/mongodbatlas"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -81,17 +83,32 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	//Test connection and user permissions
-	err = testConnection(ctx, mongodbClusterCR)
-	if err != nil {
-		meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
-			metav1.Condition{
-				Type:               "Ready",
-				Status:             metav1.ConditionFalse,
-				Reason:             "MongoConnectionFailed",
-				LastTransitionTime: metav1.NewTime(time.Now()),
-				Message:            fmt.Sprintf("mongo connection failed: %s", err.Error()),
-			})
-		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
+	if mongodbClusterCR.Spec.UseAtlasAPI {
+		err = testAtlasConnection(ctx, mongodbClusterCR)
+		if err != nil {
+			meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
+				metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "AtlasConnectionFailed",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					Message:            fmt.Sprintf("Atlas connection failed: %s", err.Error()),
+				})
+			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
+		}
+	} else {
+		err = testMongoConnection(ctx, mongodbClusterCR)
+		if err != nil {
+			meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
+				metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "MongoConnectionFailed",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					Message:            fmt.Sprintf("mongo connection failed: %s", err.Error()),
+				})
+			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
+		}
 	}
 
 	meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
@@ -114,7 +131,7 @@ func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func testConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster) error {
+func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster) error {
 	logger := log.FromContext(ctx)
 
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongodbClusterCR.Spec.ConnectionString))
@@ -154,6 +171,39 @@ func testConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.Mongo
 	}
 	return nil
 
+}
+
+func testAtlasConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster) error {
+	logger := log.FromContext(ctx)
+
+	t := digest.NewTransport(mongodbClusterCR.Spec.AtlasPublicKey, mongodbClusterCR.Spec.AtlasPrivateKey)
+	tc, err := t.Client()
+	if err != nil {
+		logger.Error(err, "Couldn't get a digest for Atlas with public key "+mongodbClusterCR.Spec.AtlasPublicKey)
+		return err
+	}
+
+	client := mongodbatlas.NewClient(tc)
+
+	root, _, err := client.Root.List(context.Background(), nil)
+	if err != nil {
+		logger.Error(err, "Couldn't get atlas user information")
+		return err
+	}
+
+	hasPrivilege := false
+	for _, role := range root.APIKey.Roles {
+		if role.GroupID == mongodbClusterCR.Spec.AtlasGroupID && (role.RoleName == "GROUP_OWNER" || role.RoleName == "ORG_OWNER") {
+			hasPrivilege = true
+		}
+	}
+	if !hasPrivilege {
+		err = errors.NewUnauthorized("User is not GROUP_OWNER nor ORG_OWNER")
+		logger.Error(err, "User doesn't have GROUP_OWNER privilege for atlas groupID "+mongodbClusterCR.Spec.AtlasGroupID)
+
+		return err
+	}
+	return nil
 }
 
 func (r *MongoDBClusterReconciler) updateAccessRequests(ctx context.Context, req ctrl.Request, clusterName string) error {

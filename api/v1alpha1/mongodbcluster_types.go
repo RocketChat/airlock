@@ -25,18 +25,31 @@ import (
 type MongoDBClusterSpec struct {
 
 	// ConnectionString that Airlock will use to connect to the cluster. It should have enough privileges to manage users and access. This is not gonna be used by the created users.
-	// +kubebuilder:validation:Required
-	ConnectionString string `json:"connectionString"`
-
-	// TODO: this "required" is not working for some reason...... Figure it out
+	ConnectionString string `json:"connectionString,omitempty"`
 
 	// The host with port that clients will receive when requesting credentials.
 	// +kubebuilder:validation:Required
-	HostTemplate string `json:"hostTemplate,omitempty"`
+	HostTemplate string `json:"hostTemplate"` // Obs: no omitempty here to make it required. (the annotation above refuses to work on this particular field for some reason)
 
 	// Extra connection string parameters that will be added to the connection string.
 	// +kubebuilder:default=?replicaSet=rs01
 	OptionsTemplate string `json:"optionsTemplate,omitempty"`
+
+	// The prefix used when building the connection string. Defaults to "mongodb"
+	// +kubebuilder:default=mongodb
+	PrefixTemplate string `json:"prefixTemplate,omitempty"`
+
+	// If this is set, Atlas API will be used instead of the regular mongo auth path.
+	UseAtlasAPI bool `json:"useAtlasAPI,omitempty"`
+
+	// Group ID for the given Atlas project
+	AtlasGroupID string `json:"atlasGroupID,omitempty"`
+
+	// Public key for the Atlas project
+	AtlasPublicKey string `json:"atlasPublicKey,omitempty"`
+
+	// Private key for the Atlas project
+	AtlasPrivateKey string `json:"atlasPrivateKey,omitempty"`
 }
 
 // MongoDBClusterStatus defines the observed state of MongoDBCluster
