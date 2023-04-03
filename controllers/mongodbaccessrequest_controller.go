@@ -382,6 +382,7 @@ func (r *MongoDBAccessRequestReconciler) reconcileMongoDBUser(ctx context.Contex
 		return result.Err()
 	}
 	logger.Info("Successfully created MongoDB user "+mongodbAccessRequestCR.Spec.UserName, " on ", mongodbAccessRequestCR.Spec.Database)
+
 	return nil
 }
 
