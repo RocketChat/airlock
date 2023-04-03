@@ -27,14 +27,22 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
 )
@@ -48,6 +56,7 @@ type MongoDBClusterReconciler struct {
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbclusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbclusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbclusters/finalizers,verbs=update
+//+kubebuilder:rbac:groups="";apps;networking.k8s.io,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -82,9 +91,25 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 	}
 
+	secret := &corev1.Secret{}
+	err = r.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: mongodbClusterCR.Spec.ConnectionSecret}, secret)
+	if err != nil {
+		meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "SecretReadFailed",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("Failed to read connection secret %s: %s", mongodbClusterCR.Spec.ConnectionSecret, err.Error()),
+			})
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
+	}
+
+	_ = ctrl.SetControllerReference(mongodbClusterCR, secret, r.Scheme)
+
 	//Test connection and user permissions
 	if mongodbClusterCR.Spec.UseAtlasAPI {
-		err = testAtlasConnection(ctx, mongodbClusterCR)
+		err = testAtlasConnection(ctx, mongodbClusterCR, secret)
 		if err != nil {
 			meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
 				metav1.Condition{
@@ -97,7 +122,7 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 		}
 	} else {
-		err = testMongoConnection(ctx, mongodbClusterCR)
+		err = testMongoConnection(ctx, mongodbClusterCR, secret)
 		if err != nil {
 			meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
 				metav1.Condition{
@@ -123,18 +148,61 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 }
 
+func (r *MongoDBClusterReconciler) findObjectsForSecret(secret client.Object) []reconcile.Request {
+	mongodbClusterCR := &airlockv1alpha1.MongoDBClusterList{}
+	listOps := &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("connectionSecret", secret.GetName()),
+		Namespace:     secret.GetNamespace(),
+	}
+	err := r.List(context.TODO(), mongodbClusterCR, listOps)
+	if err != nil {
+		return []reconcile.Request{}
+	}
+
+	requests := make([]reconcile.Request, len(mongodbClusterCR.Items))
+	for i, item := range mongodbClusterCR.Items {
+		requests[i] = reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      item.GetName(),
+				Namespace: item.GetNamespace(),
+			},
+		}
+	}
+	return requests
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctrl.Log.WithName("controllers").WithName("MongoDBCluster").V(1).Info("Starting MongoDBCluster controller")
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &airlockv1alpha1.MongoDBCluster{}, "connectionSecret", func(rawObj client.Object) []string {
+		// Extract the ConfigMap name from the ConfigDeployment Spec, if one is provided
+		mongodbClusterCR := rawObj.(*airlockv1alpha1.MongoDBCluster)
+		if mongodbClusterCR.Spec.ConnectionSecret == "" {
+			return nil
+		}
+		return []string{mongodbClusterCR.Spec.ConnectionSecret}
+	}); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&airlockv1alpha1.MongoDBCluster{}).
+		Watches(
+			&source.Kind{Type: &corev1.Secret{}},
+			handler.EnqueueRequestsFromMapFunc(r.findObjectsForSecret),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
 		Complete(r)
 }
 
-func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster) error {
+func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, secret *corev1.Secret) error {
 	logger := log.FromContext(ctx)
 
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongodbClusterCR.Spec.ConnectionString))
+	connectionString, err := getSecretProperty(secret, "connectionString")
+	if err != nil {
+		return err
+	}
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(connectionString))
 	if err != nil {
 		logger.Error(err, "Couldn't connect to mongodb for cluster "+mongodbClusterCR.Name)
 		return err
@@ -173,13 +241,26 @@ func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 
 }
 
-func testAtlasConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster) error {
+func testAtlasConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, secret *corev1.Secret) error {
 	logger := log.FromContext(ctx)
 
-	t := digest.NewTransport(mongodbClusterCR.Spec.AtlasPublicKey, mongodbClusterCR.Spec.AtlasPrivateKey)
+	atlasPublicKey, err := getSecretProperty(secret, "atlasPublicKey")
+	if err != nil {
+		return err
+	}
+	atlasPrivateKey, err := getSecretProperty(secret, "atlasPrivateKey")
+	if err != nil {
+		return err
+	}
+	atlasGroupID, err := getSecretProperty(secret, "atlasGroupID")
+	if err != nil {
+		return err
+	}
+
+	t := digest.NewTransport(atlasPublicKey, atlasPrivateKey)
 	tc, err := t.Client()
 	if err != nil {
-		logger.Error(err, "Couldn't get a digest for Atlas with public key "+mongodbClusterCR.Spec.AtlasPublicKey)
+		logger.Error(err, "Couldn't get a digest for Atlas with public key "+atlasPublicKey)
 		return err
 	}
 
@@ -193,13 +274,13 @@ func testAtlasConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 
 	hasPrivilege := false
 	for _, role := range root.APIKey.Roles {
-		if role.GroupID == mongodbClusterCR.Spec.AtlasGroupID && (role.RoleName == "GROUP_OWNER" || role.RoleName == "ORG_OWNER") {
+		if role.GroupID == atlasGroupID && (role.RoleName == "GROUP_OWNER" || role.RoleName == "ORG_OWNER") {
 			hasPrivilege = true
 		}
 	}
 	if !hasPrivilege {
 		err = errors.NewUnauthorized("User is not GROUP_OWNER nor ORG_OWNER")
-		logger.Error(err, "User doesn't have GROUP_OWNER privilege for atlas groupID "+mongodbClusterCR.Spec.AtlasGroupID)
+		logger.Error(err, "User doesn't have GROUP_OWNER privilege for atlas groupID "+atlasGroupID)
 
 		return err
 	}

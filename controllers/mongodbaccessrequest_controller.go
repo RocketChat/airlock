@@ -119,6 +119,20 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
+	clusterSecret := &corev1.Secret{}
+	err = r.Get(ctx, types.NamespacedName{Namespace: env.DBCLUSTER_NAMESPACE, Name: mongodbClusterCR.Spec.ConnectionSecret}, clusterSecret)
+	if err != nil {
+		meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "SecretReadFailed",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("Failed to read cluster connection secret %s: %s", mongodbClusterCR.Spec.ConnectionSecret, err.Error()),
+			})
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
+	}
+
 	// We need to try to read the password from the secret before anything, because if it exists, we need to use it
 	// If it doesn't exist yet, one will be generated
 	userPassword, err := r.readPasswordOrGenerate(ctx, req, mongodbAccessRequestCR)
@@ -143,35 +157,6 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 		mongodbAccessRequestCR.Spec.Database,
 		mongodbClusterCR.Spec.OptionsTemplate)
 
-	if mongodbClusterCR.Spec.UseAtlasAPI {
-		err = r.reconcileAtlasUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, connectionString, userPassword)
-		if err != nil {
-			meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
-				metav1.Condition{
-					Type:               "Ready",
-					Status:             metav1.ConditionFalse,
-					Reason:             "UpdateAtlasFailed",
-					LastTransitionTime: metav1.NewTime(time.Now()),
-					Message:            fmt.Sprintf("Failed to create or update user on atlas: %s", err.Error()),
-				})
-			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
-		}
-	} else {
-		err = r.reconcileMongoDBUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, connectionString, userPassword)
-		if err != nil {
-			meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
-				metav1.Condition{
-					Type:               "Ready",
-					Status:             metav1.ConditionFalse,
-					Reason:             "UpdateMongoFailed",
-					LastTransitionTime: metav1.NewTime(time.Now()),
-					Message:            fmt.Sprintf("Failed to create or update user on mongodb: %s", err.Error()),
-				})
-			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
-		}
-	}
-
-	//TODO: if this step fails and the secret is empty, it's going to indefinitely keep regenerating the password on the DB. Is this a problem?
 	err = r.reconcileSecret(ctx, req, mongodbAccessRequestCR, connectionString, userPassword)
 	if err != nil {
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
@@ -186,7 +171,35 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
-  // If we are already Ready == true, dont update it again
+	if mongodbClusterCR.Spec.UseAtlasAPI {
+		err = r.reconcileAtlasUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, clusterSecret, connectionString, userPassword)
+		if err != nil {
+			meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+				metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "UpdateAtlasFailed",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					Message:            fmt.Sprintf("Failed to create or update user on atlas: %s", err.Error()),
+				})
+			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+		}
+	} else {
+		err = r.reconcileMongoDBUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, clusterSecret, connectionString, userPassword)
+		if err != nil {
+			meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+				metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "UpdateMongoFailed",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					Message:            fmt.Sprintf("Failed to create or update user on mongodb: %s", err.Error()),
+				})
+			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+		}
+	}
+
+	// If we are already Ready == true, dont update it again
 	if len(mongodbAccessRequestCR.Status.Conditions) == 0 || mongodbAccessRequestCR.Status.Conditions[0].Status != metav1.ConditionTrue {
 
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
@@ -310,12 +323,17 @@ func (r *MongoDBAccessRequestReconciler) generateAttributes(ctx context.Context,
 	return nil
 }
 
-func (r *MongoDBAccessRequestReconciler) reconcileMongoDBUser(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, userConnectionString string, userPassword string) error {
+func (r *MongoDBAccessRequestReconciler) reconcileMongoDBUser(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, clusterSecret *corev1.Secret, userConnectionString string, userPassword string) error {
 	logger := log.FromContext(ctx)
 
 	logger.Info("Reconciling MongoDB user")
 
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongodbClusterCR.Spec.ConnectionString))
+	connectionString, err := getSecretProperty(clusterSecret, "connectionString")
+	if err != nil {
+		return err
+	}
+
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(connectionString))
 	if err != nil {
 		return err
 	}
@@ -362,15 +380,28 @@ func (r *MongoDBAccessRequestReconciler) reconcileMongoDBUser(ctx context.Contex
 	return nil
 }
 
-func (r *MongoDBAccessRequestReconciler) reconcileAtlasUser(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, userConnectionString string, userPassword string) error {
+func (r *MongoDBAccessRequestReconciler) reconcileAtlasUser(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, clusterSecret *corev1.Secret, userConnectionString string, userPassword string) error {
 	logger := log.FromContext(ctx)
 
 	logger.Info("Reconciling Atlas user")
 
-	t := digest.NewTransport(mongodbClusterCR.Spec.AtlasPublicKey, mongodbClusterCR.Spec.AtlasPrivateKey)
+	atlasPublicKey, err := getSecretProperty(clusterSecret, "atlasPublicKey")
+	if err != nil {
+		return err
+	}
+	atlasPrivateKey, err := getSecretProperty(clusterSecret, "atlasPrivateKey")
+	if err != nil {
+		return err
+	}
+	atlasGroupID, err := getSecretProperty(clusterSecret, "atlasGroupID")
+	if err != nil {
+		return err
+	}
+
+	t := digest.NewTransport(atlasPublicKey, atlasPrivateKey)
 	tc, err := t.Client()
 	if err != nil {
-		logger.Error(err, "Couldn't get a digest for Atlas with public key "+mongodbClusterCR.Spec.AtlasPublicKey)
+		logger.Error(err, "Couldn't get a digest for Atlas with public key "+atlasPublicKey)
 		return err
 	}
 
@@ -396,7 +427,7 @@ func (r *MongoDBAccessRequestReconciler) reconcileAtlasUser(ctx context.Context,
 		DatabaseName: "admin",
 		Username:     mongodbAccessRequestCR.Spec.UserName,
 		Password:     userPassword,
-		GroupID:      mongodbClusterCR.Spec.AtlasGroupID,
+		GroupID:      atlasGroupID,
 		Roles: []mongodbatlas.Role{
 			{
 				RoleName:     "readWrite",

@@ -41,19 +41,11 @@ spec:
             type: object
           spec:
             properties:
-              atlasGroupID:
-                description: Group ID for the given Atlas project
-                type: string
-              atlasPrivateKey:
-                description: Private key for the Atlas project
-                type: string
-              atlasPublicKey:
-                description: Public key for the Atlas project
-                type: string
-              connectionString:
-                description: ConnectionString that Airlock will use to connect to
-                  the cluster. It should have enough privileges to manage users and
-                  access. This is not gonna be used by the created users.
+              connectionSecret:
+                description: Secret in which Airlock will look for a ConnectionString
+                  or Atlas credentials, that will be used to connect to the cluster.
+                  It should have enough privileges to manage users and access. This
+                  is not gonna be used by the created users.
                 type: string
               hostTemplate:
                 description: The host with port that clients will receive when requesting
@@ -74,6 +66,7 @@ spec:
                   regular mongo auth path.
                 type: boolean
             required:
+            - connectionSecret
             - hostTemplate
             type: object
           status:

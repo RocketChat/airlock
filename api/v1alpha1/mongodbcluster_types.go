@@ -24,8 +24,8 @@ import (
 
 type MongoDBClusterSpec struct {
 
-	// ConnectionString that Airlock will use to connect to the cluster. It should have enough privileges to manage users and access. This is not gonna be used by the created users.
-	ConnectionString string `json:"connectionString,omitempty"`
+	// Secret in which Airlock will look for a ConnectionString or Atlas credentials, that will be used to connect to the cluster. It should have enough privileges to manage users and access. This is not gonna be used by the created users.
+	ConnectionSecret string `json:"connectionSecret"`
 
 	// The host with port that clients will receive when requesting credentials.
 	// +kubebuilder:validation:Required
@@ -41,15 +41,6 @@ type MongoDBClusterSpec struct {
 
 	// If this is set, Atlas API will be used instead of the regular mongo auth path.
 	UseAtlasAPI bool `json:"useAtlasAPI,omitempty"`
-
-	// Group ID for the given Atlas project
-	AtlasGroupID string `json:"atlasGroupID,omitempty"`
-
-	// Public key for the Atlas project
-	AtlasPublicKey string `json:"atlasPublicKey,omitempty"`
-
-	// Private key for the Atlas project
-	AtlasPrivateKey string `json:"atlasPrivateKey,omitempty"`
 }
 
 // MongoDBClusterStatus defines the observed state of MongoDBCluster
