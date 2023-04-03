@@ -436,8 +436,18 @@ func (r *MongoDBAccessRequestReconciler) reconcileAtlasUser(ctx context.Context,
 		},
 	}
 
-	_, _, err = client.DatabaseUsers.Create(ctx, databaseUser.GroupID, &databaseUser)
+	_, result, err := client.DatabaseUsers.Create(ctx, databaseUser.GroupID, &databaseUser)
 	if err != nil {
+		// If user already exists, update it
+		if result.StatusCode == 409 {
+			logger.Info("User " + mongodbAccessRequestCR.Spec.UserName + " already exists, updating password")
+			_, _, err = client.DatabaseUsers.Update(ctx, databaseUser.GroupID, databaseUser.Username, &databaseUser)
+			if err != nil {
+				logger.Error(err, "Error updating Atlas user")
+				return err
+			}
+			return nil
+		}
 		logger.Error(err, "Error creating atlas user "+mongodbAccessRequestCR.Spec.UserName)
 		return err
 	}
