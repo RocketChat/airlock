@@ -217,6 +217,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 			})
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
+
 	return ctrl.Result{}, nil
 }
 
