@@ -107,8 +107,8 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	_ = ctrl.SetControllerReference(mongodbClusterCR, secret, r.Scheme)
 
-	//Test connection and user permissions
-	if mongodbClusterCR.Spec.UseAtlasAPI {
+	// Test connection and user permissions
+	if mongodbClusterCR.Spec.UseAtlasApi {
 		err = testAtlasConnection(ctx, mongodbClusterCR, secret)
 		if err != nil {
 			meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
@@ -119,6 +119,7 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 					LastTransitionTime: metav1.NewTime(time.Now()),
 					Message:            fmt.Sprintf("Atlas connection failed: %s", err.Error()),
 				})
+
 			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 		}
 	} else {
@@ -132,6 +133,7 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 					LastTransitionTime: metav1.NewTime(time.Now()),
 					Message:            fmt.Sprintf("mongo connection failed: %s", err.Error()),
 				})
+
 			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 		}
 	}
@@ -154,6 +156,7 @@ func (r *MongoDBClusterReconciler) findObjectsForSecret(secret client.Object) []
 		FieldSelector: fields.OneTermEqualSelector("connectionSecret", secret.GetName()),
 		Namespace:     secret.GetNamespace(),
 	}
+
 	err := r.List(context.TODO(), mongodbClusterCR, listOps)
 	if err != nil {
 		return []reconcile.Request{}
@@ -168,18 +171,21 @@ func (r *MongoDBClusterReconciler) findObjectsForSecret(secret client.Object) []
 			},
 		}
 	}
+
 	return requests
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctrl.Log.WithName("controllers").WithName("MongoDBCluster").V(1).Info("Starting MongoDBCluster controller")
+
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &airlockv1alpha1.MongoDBCluster{}, "connectionSecret", func(rawObj client.Object) []string {
 		// Extract the ConfigMap name from the ConfigDeployment Spec, if one is provided
 		mongodbClusterCR := rawObj.(*airlockv1alpha1.MongoDBCluster)
 		if mongodbClusterCR.Spec.ConnectionSecret == "" {
 			return nil
 		}
+
 		return []string{mongodbClusterCR.Spec.ConnectionSecret}
 	}); err != nil {
 		return err
@@ -202,6 +208,7 @@ func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 	if err != nil {
 		return err
 	}
+
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(connectionString))
 	if err != nil {
 		logger.Error(err, "Couldn't connect to mongodb for cluster "+mongodbClusterCR.Name)
@@ -248,16 +255,19 @@ func testAtlasConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 	if err != nil {
 		return err
 	}
+
 	atlasPrivateKey, err := getSecretProperty(secret, "atlasPrivateKey")
 	if err != nil {
 		return err
 	}
+
 	atlasGroupID, err := getSecretProperty(secret, "atlasGroupID")
 	if err != nil {
 		return err
 	}
 
 	t := digest.NewTransport(atlasPublicKey, atlasPrivateKey)
+
 	tc, err := t.Client()
 	if err != nil {
 		logger.Error(err, "Couldn't get a digest for Atlas with public key "+atlasPublicKey)
@@ -273,17 +283,20 @@ func testAtlasConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 	}
 
 	hasPrivilege := false
+
 	for _, role := range root.APIKey.Roles {
 		if role.GroupID == atlasGroupID && (role.RoleName == "GROUP_OWNER" || role.RoleName == "ORG_OWNER") {
 			hasPrivilege = true
 		}
 	}
+
 	if !hasPrivilege {
 		err = errors.NewUnauthorized("User is not GROUP_OWNER nor ORG_OWNER")
 		logger.Error(err, "User doesn't have GROUP_OWNER privilege for atlas groupID "+atlasGroupID)
 
 		return err
 	}
+
 	return nil
 }
 

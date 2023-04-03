@@ -11,5 +11,6 @@ func getSecretProperty(secret *corev1.Secret, property string) (string, error) {
 		err := errors.NewServiceUnavailable(property + " not found in secret " + secret.Name)
 		return value, err
 	}
+
 	return value, nil
 }

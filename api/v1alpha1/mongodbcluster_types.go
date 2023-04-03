@@ -40,7 +40,7 @@ type MongoDBClusterSpec struct {
 	PrefixTemplate string `json:"prefixTemplate,omitempty"`
 
 	// If this is set, Atlas API will be used instead of the regular mongo auth path.
-	UseAtlasAPI bool `json:"useAtlasAPI,omitempty"`
+	UseAtlasApi bool `json:"useAtlasApi,omitempty"`
 }
 
 // MongoDBClusterStatus defines the observed state of MongoDBCluster

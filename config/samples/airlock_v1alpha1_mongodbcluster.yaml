@@ -14,7 +14,7 @@ kind: MongoDBCluster
 metadata:
   name: teste-atlas1
 spec:
-  useAtlasAPI: true
+  useAtlasApi: true
   hostTemplate: "cluster0.vpz0mct.mongodb.net"
   optionsTemplate: ?retryWrites=true&w=majority
   prefixTemplate: mongodb+srv
@@ -38,4 +38,4 @@ type: Opaque
 stringData:
   atlasGroupID: 642639f688ee744b5e440fca
   atlasPublicKey: qasqmibv
-  atlasPrivateKey: ????
+  atlasPrivateKey: ??????
