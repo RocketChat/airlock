@@ -3,6 +3,39 @@ kind: MongoDBCluster
 metadata:
   name: teste-mongodb1
 spec:
-  connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/test?replicaSet=rs0"
+  connectionSecret: airlock-connection-string
   hostTemplate: "mongodb.airlock-test"
   optionsTemplate: ?replicaSet=rs0
+ 
+---
+
+apiVersion: airlock.cloud.rocket.chat/v1alpha1
+kind: MongoDBCluster
+metadata:
+  name: teste-atlas1
+spec:
+  useAtlasApi: true
+  hostTemplate: "cluster0.vpz0mct.mongodb.net"
+  optionsTemplate: ?retryWrites=true&w=majority
+  prefixTemplate: mongodb+srv
+  connectionSecret: airlock-atlas-connection
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: airlock-connection-string
+type: Opaque
+stringData:
+  connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/test?replicaSet=rs0"
+  
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: airlock-atlas-connection
+type: Opaque
+stringData:
+  atlasGroupID: 642639f688ee744b5e440fca
+  atlasPublicKey: qasqmibv
+  atlasPrivateKey: ??????

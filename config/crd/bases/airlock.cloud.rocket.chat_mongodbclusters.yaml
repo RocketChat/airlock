@@ -41,10 +41,11 @@ spec:
             type: object
           spec:
             properties:
-              connectionString:
-                description: ConnectionString that Airlock will use to connect to
-                  the cluster. It should have enough privileges to manage users and
-                  access. This is not gonna be used by the created users.
+              connectionSecret:
+                description: Secret in which Airlock will look for a ConnectionString
+                  or Atlas credentials, that will be used to connect to the cluster.
+                  It should have enough privileges to manage users and access. This
+                  is not gonna be used by the created users.
                 type: string
               hostTemplate:
                 description: The host with port that clients will receive when requesting
@@ -55,8 +56,18 @@ spec:
                 description: Extra connection string parameters that will be added
                   to the connection string.
                 type: string
+              prefixTemplate:
+                default: mongodb
+                description: The prefix used when building the connection string.
+                  Defaults to "mongodb"
+                type: string
+              useAtlasApi:
+                description: If this is set, Atlas API will be used instead of the
+                  regular mongo auth path.
+                type: boolean
             required:
-            - connectionString
+            - connectionSecret
+            - hostTemplate
             type: object
           status:
             description: MongoDBClusterStatus defines the observed state of MongoDBCluster

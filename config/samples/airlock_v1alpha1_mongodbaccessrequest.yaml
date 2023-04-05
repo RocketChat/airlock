@@ -4,4 +4,11 @@ metadata:
   name: porfavor
 spec:
   clusterName: teste-mongodb1
+---
+apiVersion: airlock.cloud.rocket.chat/v1alpha1
+kind: MongoDBAccessRequest
+metadata:
+  name: obrigado
+spec:
+  clusterName: teste-atlas1
 
