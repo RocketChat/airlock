@@ -224,7 +224,6 @@ func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 		return err
 	}
 
-	// Check if the current user has the necessary privilege in any of their roles
 	hasPrivilege := canCreateUsers(logger, result["authInfo"].(map[string]interface{})["authenticatedUserRoles"].(primitive.A))
 
 	if !hasPrivilege {
@@ -338,7 +337,7 @@ func canCreateUsers(logger logr.Logger, roles primitive.A) bool {
 		r = role.(map[string]interface{})
 		switch r["role"] {
 		case "__system": // ouch
-			logger.Info("current user has __system role assigned, an internal role, assuming this is intended but not recommended" + " please read https://www.mongodb.com/docs/manual/reference/built-in-roles/#mongodb-authrole-__system")
+			logger.Info("current user has __system role assigned, an internal role, assuming this is intended but not recommended, please read https://www.mongodb.com/docs/manual/reference/built-in-roles/#mongodb-authrole-__system")
 			return true
 		case "root", "userAdminAnyDatabase":
 			return true
@@ -348,7 +347,7 @@ func canCreateUsers(logger logr.Logger, roles primitive.A) bool {
 			continue
 		}
 
-		if r["role"] == "dbOwner" || r["role"] == "usrAdmin" {
+		if r["role"] == "dbOwner" || r["role"] == "userAdmin" {
 			return true
 		}
 	}
