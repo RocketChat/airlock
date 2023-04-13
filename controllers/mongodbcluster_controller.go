@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/mongodb-forks/digest"
 	"go.mongodb.org/atlas/mongodbatlas"
 	"go.mongodb.org/mongo-driver/bson"
@@ -224,20 +225,8 @@ func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 	}
 
 	// Check if the current user has the necessary privilege in any of their roles
-	hasPrivilege := false
-	roles := result["authInfo"].(map[string]interface{})["authenticatedUserRoles"].(primitive.A)
-	for _, role := range roles {
-		if role.(map[string]interface{})["privileges"] != nil {
-			for _, privilege := range role.(map[string]interface{})["privileges"].([]interface{}) {
-				if privilege.(map[string]interface{})["actions"].(map[string]interface{})["userAdmin"].(bool) {
-					hasPrivilege = true
-				}
-			}
-		}
-		if role.(map[string]interface{})["role"] == "userAdminAnyDatabase" {
-			hasPrivilege = true
-		}
-	}
+	hasPrivilege := canCreateUsers(logger, result["authInfo"].(map[string]interface{})["authenticatedUserRoles"].(primitive.A))
+
 	if !hasPrivilege {
 		err = errors.NewUnauthorized("User can't create new users")
 		logger.Error(err, "User doesn't have privilege in cluster "+mongodbClusterCR.Name)
@@ -337,4 +326,32 @@ func (r *MongoDBClusterReconciler) updateAccessRequests(ctx context.Context, req
 		}
 	}
 	return nil
+}
+
+func canCreateUsers(logger logr.Logger, roles primitive.A) bool {
+	/*
+		https://www.mongodb.com/docs/manual/reference/built-in-roles/#superuser-roles
+		https://www.mongodb.com/docs/manual/reference/built-in-roles/#mongodb-authrole-root
+	*/
+	var r map[string]interface{}
+	for _, role := range roles {
+		r = role.(map[string]interface{})
+		switch r["role"] {
+		case "__system": // ouch
+			logger.Info("current user has __system role assigned, an internal role, assuming this is intended but not recommended" + " please read https://www.mongodb.com/docs/manual/reference/built-in-roles/#mongodb-authrole-__system")
+			return true
+		case "root", "userAdminAnyDatabase":
+			return true
+		}
+
+		if r["db"] != "admin" {
+			continue
+		}
+
+		if r["role"] == "dbOwner" || r["role"] == "usrAdmin" {
+			return true
+		}
+	}
+
+	return false
 }

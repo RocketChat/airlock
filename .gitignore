@@ -26,3 +26,8 @@ Dockerfile.cross
 *~
 
 .vscode
+.idea/
+
+mongoValues.yaml
+db-secret.yaml
+db-cluster.yaml
