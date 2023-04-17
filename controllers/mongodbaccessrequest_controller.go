@@ -25,7 +25,6 @@ import (
 
 	"github.com/RocketChat/airlock/controllers/env"
 	"github.com/RocketChat/airlock/controllers/hash"
-	"github.com/mongodb-forks/digest"
 	"github.com/thanhpk/randstr"
 	"go.mongodb.org/atlas/mongodbatlas"
 	"go.mongodb.org/mongo-driver/bson"
@@ -41,6 +40,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
@@ -51,6 +51,10 @@ type MongoDBAccessRequestReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
+
+const (
+	airlockFinalizer = "airlock.cloud.rocket.chat/finalizer"
+)
 
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbaccessrequests,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbaccessrequests/status,verbs=get;update;patch
@@ -75,8 +79,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 
 	err := r.Get(ctx, req.NamespacedName, mongodbAccessRequestCR)
 	if err != nil && errors.IsNotFound(err) {
-		logger.Info("Operator resource object not found.")
-
+		logger.Info("Operator resource object not found. It was probably deleted")
 		return ctrl.Result{}, nil
 	} else if err != nil {
 		logger.Error(err, "Error getting operator resource object")
@@ -135,6 +138,67 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 			})
 
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
+	}
+
+	// ### Finalizer logic ###
+	// examine DeletionTimestamp to determine if object is under deletion
+	if mongodbAccessRequestCR.ObjectMeta.DeletionTimestamp.IsZero() {
+		// The object is not being deleted, so if it does not have our finalizer,
+		// then lets add the finalizer and update the object. This is equivalent
+		// registering our finalizer.
+		if !controllerutil.ContainsFinalizer(mongodbAccessRequestCR, airlockFinalizer) {
+			controllerutil.AddFinalizer(mongodbAccessRequestCR, airlockFinalizer)
+
+			if err := r.Update(ctx, mongodbAccessRequestCR); err != nil {
+				logger.Error(err, "Failed to add finalizer.")
+				return ctrl.Result{}, err
+			}
+		}
+	} else {
+		// The object is being deleted
+		if controllerutil.ContainsFinalizer(mongodbAccessRequestCR, airlockFinalizer) {
+			// our finalizer is present, so lets cleanup our created user on mongo/atlas
+			if mongodbClusterCR.Spec.UseAtlasApi {
+				err = r.cleanupAtlasUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, clusterSecret)
+				if err != nil {
+					logger.Error(err, "Cleanup failed for atlas.")
+					meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+						metav1.Condition{
+							Type:               "Ready",
+							Status:             metav1.ConditionFalse,
+							Reason:             "DeleteAtlasUserFailed",
+							LastTransitionTime: metav1.NewTime(time.Now()),
+							Message:            fmt.Sprintf("Failed to delete atlas user while cleaning resource. You may need to manually remove the finalizer: %s", err.Error()),
+						})
+
+					return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+				}
+			} else {
+				err = r.cleanupMongoUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, clusterSecret)
+				if err != nil {
+					logger.Error(err, "Cleanup failed for mongodb.")
+					meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+						metav1.Condition{
+							Type:               "Ready",
+							Status:             metav1.ConditionFalse,
+							Reason:             "DeleteMongoUserFailed",
+							LastTransitionTime: metav1.NewTime(time.Now()),
+							Message:            fmt.Sprintf("Failed to delete mongo user while cleaning resource. You may need to manually remove the finalizer: %s", err.Error()),
+						})
+
+					return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+				}
+			}
+
+			// remove our finalizer from the list and update it.
+			controllerutil.RemoveFinalizer(mongodbAccessRequestCR, airlockFinalizer)
+			if err := r.Update(ctx, mongodbAccessRequestCR); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Stop reconciliation as the item is being deleted
+		return ctrl.Result{}, nil
 	}
 
 	// We need to try to read the password from the secret before anything, because if it exists, we need to use it
@@ -329,6 +393,39 @@ func (r *MongoDBAccessRequestReconciler) generateAttributes(ctx context.Context,
 	return nil
 }
 
+func (r *MongoDBAccessRequestReconciler) cleanupMongoUser(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, clusterSecret *corev1.Secret) error {
+	logger := log.FromContext(ctx)
+
+	logger.Info("Cleaning up MongoDB user " + mongodbAccessRequestCR.Spec.UserName)
+
+	connectionString, err := getSecretProperty(clusterSecret, "connectionString")
+	if err != nil {
+		return err
+	}
+
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(connectionString))
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err = client.Disconnect(ctx); err != nil {
+			logger.Error(err, "Error disconnecting from MongoDB")
+		}
+	}()
+
+	result := client.Database(mongodbAccessRequestCR.Spec.Database).RunCommand(context.Background(), bson.D{{Key: "dropUser", Value: mongodbAccessRequestCR.Spec.UserName}})
+	if result.Err() != nil && !strings.Contains(result.Err().Error(), "UserNotFound") {
+		logger.Error(result.Err(), "Error deleting MongoDB user")
+
+		return result.Err()
+	}
+
+	logger.Info("Successfully deleted MongoDB user "+mongodbAccessRequestCR.Spec.UserName, " on ", mongodbAccessRequestCR.Spec.Database)
+
+	return nil
+}
+
 func (r *MongoDBAccessRequestReconciler) reconcileMongoDBUser(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, clusterSecret *corev1.Secret, userConnectionString string, userPassword string) error {
 	logger := log.FromContext(ctx)
 
@@ -343,6 +440,7 @@ func (r *MongoDBAccessRequestReconciler) reconcileMongoDBUser(ctx context.Contex
 	if err != nil {
 		return err
 	}
+
 	defer func() {
 		if err = client.Disconnect(ctx); err != nil {
 			logger.Error(err, "Error disconnecting from MongoDB")
@@ -387,35 +485,37 @@ func (r *MongoDBAccessRequestReconciler) reconcileMongoDBUser(ctx context.Contex
 	return nil
 }
 
+// OBS: this is not called when a user is renamed in the CR, thus not cleaning the old one up. Should we worry about this?
+func (r *MongoDBAccessRequestReconciler) cleanupAtlasUser(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, clusterSecret *corev1.Secret) error {
+	logger := log.FromContext(ctx)
+
+	logger.Info("Cleaning up Atlas user " + mongodbAccessRequestCR.Spec.UserName)
+
+	client, atlasGroupID, err := getAtlasClientFromSecret(clusterSecret)
+	if err != nil {
+		logger.Error(err, "Couldn't get a client for Atlas")
+		return err
+	}
+
+	result, err := client.DatabaseUsers.Delete(ctx, "admin", atlasGroupID, mongodbAccessRequestCR.Spec.UserName)
+	if err != nil && result.StatusCode != http.StatusNotFound {
+		logger.Error(err, "Failed to delete atlas user "+mongodbAccessRequestCR.Spec.UserName)
+		return err
+	}
+
+	return nil
+}
+
 func (r *MongoDBAccessRequestReconciler) reconcileAtlasUser(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, clusterSecret *corev1.Secret, userConnectionString string, userPassword string) error {
 	logger := log.FromContext(ctx)
 
 	logger.Info("Reconciling Atlas user")
 
-	atlasPublicKey, err := getSecretProperty(clusterSecret, "atlasPublicKey")
+	client, atlasGroupID, err := getAtlasClientFromSecret(clusterSecret)
 	if err != nil {
+		logger.Error(err, "Couldn't get a client for Atlas")
 		return err
 	}
-
-	atlasPrivateKey, err := getSecretProperty(clusterSecret, "atlasPrivateKey")
-	if err != nil {
-		return err
-	}
-
-	atlasGroupID, err := getSecretProperty(clusterSecret, "atlasGroupID")
-	if err != nil {
-		return err
-	}
-
-	t := digest.NewTransport(atlasPublicKey, atlasPrivateKey)
-
-	tc, err := t.Client()
-	if err != nil {
-		logger.Error(err, "Couldn't get a digest for Atlas with public key "+atlasPublicKey)
-		return err
-	}
-
-	client := mongodbatlas.NewClient(tc)
 
 	// Connect to the database as created user
 	userClient, err := mongo.Connect(ctx, options.Client().ApplyURI(userConnectionString))

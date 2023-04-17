@@ -26,6 +26,7 @@ Dockerfile.cross
 *~
 
 .vscode
+test_replicaset.txt
 .idea/
 
 mongoValues.yaml

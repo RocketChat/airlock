@@ -22,8 +22,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/mongodb-forks/digest"
-	"go.mongodb.org/atlas/mongodbatlas"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -233,36 +231,16 @@ func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 		return err
 	}
 	return nil
-
 }
 
 func testAtlasConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, secret *corev1.Secret) error {
 	logger := log.FromContext(ctx)
 
-	atlasPublicKey, err := getSecretProperty(secret, "atlasPublicKey")
+	client, atlasGroupID, err := getAtlasClientFromSecret(secret)
 	if err != nil {
+		logger.Error(err, "Couldn't get a client for Atlas")
 		return err
 	}
-
-	atlasPrivateKey, err := getSecretProperty(secret, "atlasPrivateKey")
-	if err != nil {
-		return err
-	}
-
-	atlasGroupID, err := getSecretProperty(secret, "atlasGroupID")
-	if err != nil {
-		return err
-	}
-
-	t := digest.NewTransport(atlasPublicKey, atlasPrivateKey)
-
-	tc, err := t.Client()
-	if err != nil {
-		logger.Error(err, "Couldn't get a digest for Atlas with public key "+atlasPublicKey)
-		return err
-	}
-
-	client := mongodbatlas.NewClient(tc)
 
 	root, _, err := client.Root.List(context.Background(), nil)
 	if err != nil {
