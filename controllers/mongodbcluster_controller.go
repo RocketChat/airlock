@@ -22,8 +22,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/mongodb-forks/digest"
-	"go.mongodb.org/atlas/mongodbatlas"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -233,7 +231,6 @@ func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 		return err
 	}
 	return nil
-
 }
 
 func testAtlasConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, secret *corev1.Secret) error {
