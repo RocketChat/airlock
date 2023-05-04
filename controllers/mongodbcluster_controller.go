@@ -229,6 +229,7 @@ func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 
 		return err
 	}
+
 	return nil
 }
 
