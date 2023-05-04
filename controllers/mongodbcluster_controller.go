@@ -152,7 +152,7 @@ func (r *MongoDBClusterReconciler) findObjectsForSecret(secret client.Object) []
 	mongodbClusterCR := &airlockv1alpha1.MongoDBClusterList{}
 	listOps := &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector("connectionSecret", secret.GetName()),
-		Namespace:     secret.GetNamespace(),
+		Namespace:     "",
 	}
 
 	err := r.List(context.TODO(), mongodbClusterCR, listOps)
