@@ -13,7 +13,7 @@ spec:
     listKind: MongoDBClusterList
     plural: mongodbclusters
     singular: mongodbcluster
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
@@ -46,6 +46,9 @@ spec:
                   or Atlas credentials, that will be used to connect to the cluster.
                   It should have enough privileges to manage users and access. This
                   is not gonna be used by the created users.
+                type: string
+              connectionSecretNamespace:
+                default: airlock-system
                 type: string
               hostTemplate:
                 description: The host with port that clients will receive when requesting

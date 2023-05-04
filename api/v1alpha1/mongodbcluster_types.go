@@ -27,6 +27,10 @@ type MongoDBClusterSpec struct {
 	// Secret in which Airlock will look for a ConnectionString or Atlas credentials, that will be used to connect to the cluster. It should have enough privileges to manage users and access. This is not gonna be used by the created users.
 	ConnectionSecret string `json:"connectionSecret"`
 
+	// +kubebuilder:default=airlock-system
+	// +kubebuilder:validation:Optional
+	ConnectionSecretNamespace string `json:"connectionSecretNamespace,omitempty"`
+
 	// The host with port that clients will receive when requesting credentials.
 	// +kubebuilder:validation:Required
 	HostTemplate string `json:"hostTemplate"` // Obs: no omitempty here to make it required. (the annotation above refuses to work on this particular field for some reason)
@@ -48,10 +52,10 @@ type MongoDBClusterStatus struct {
 	Conditions []metav1.Condition `json:"conditions"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-
 // MongoDBCluster is the Schema for the mongodbclusters API
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type MongoDBCluster struct {

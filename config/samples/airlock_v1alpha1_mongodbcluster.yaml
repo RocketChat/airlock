@@ -19,12 +19,13 @@ spec:
   optionsTemplate: ?retryWrites=true&w=majority
   prefixTemplate: mongodb+srv
   connectionSecret: airlock-atlas-connection
-
+  connectionSecretNamespace: airlock-system
 ---
 apiVersion: v1
 kind: Secret
 metadata:
   name: airlock-connection-string
+  namespace: airlock-system
 type: Opaque
 stringData:
   connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/test?replicaSet=rs0"
@@ -33,6 +34,7 @@ stringData:
 apiVersion: v1
 kind: Secret
 metadata:
+  namespace: airlock-system
   name: airlock-atlas-connection
 type: Opaque
 stringData:
