@@ -69,7 +69,6 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	mongodbClusterCR := &airlockv1alpha1.MongoDBCluster{}
 
-	// TODO: namespace? clusters should be cluster-wide.
 	err := r.Get(ctx, req.NamespacedName, mongodbClusterCR)
 	if err != nil && errors.IsNotFound(err) {
 		logger.Info("Operator resource object not found.")
@@ -91,7 +90,7 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	secret := &corev1.Secret{}
-	err = r.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: mongodbClusterCR.Spec.ConnectionSecret}, secret)
+	err = r.Get(ctx, types.NamespacedName{Namespace: mongodbClusterCR.Spec.ConnectionSecretNamespace, Name: mongodbClusterCR.Spec.ConnectionSecret}, secret)
 	if err != nil {
 		meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
 			metav1.Condition{
@@ -153,7 +152,7 @@ func (r *MongoDBClusterReconciler) findObjectsForSecret(secret client.Object) []
 	mongodbClusterCR := &airlockv1alpha1.MongoDBClusterList{}
 	listOps := &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector("connectionSecret", secret.GetName()),
-		Namespace:     secret.GetNamespace(),
+		Namespace:     "",
 	}
 
 	err := r.List(context.TODO(), mongodbClusterCR, listOps)
@@ -230,6 +229,7 @@ func testMongoConnection(ctx context.Context, mongodbClusterCR *airlockv1alpha1.
 
 		return err
 	}
+
 	return nil
 }
 

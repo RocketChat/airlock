@@ -111,7 +111,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
 
-	err = r.Get(ctx, types.NamespacedName{Namespace: env.DBCLUSTER_NAMESPACE, Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
+	err = r.Get(ctx, types.NamespacedName{Namespace: "", Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
 	if err != nil {
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 			metav1.Condition{
@@ -126,7 +126,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 
 	clusterSecret := &corev1.Secret{}
 
-	err = r.Get(ctx, types.NamespacedName{Namespace: env.DBCLUSTER_NAMESPACE, Name: mongodbClusterCR.Spec.ConnectionSecret}, clusterSecret)
+	err = r.Get(ctx, types.NamespacedName{Namespace: mongodbClusterCR.Spec.ConnectionSecretNamespace, Name: mongodbClusterCR.Spec.ConnectionSecret}, clusterSecret)
 	if err != nil {
 		meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
 			metav1.Condition{
@@ -162,31 +162,39 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 				err = r.cleanupAtlasUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, clusterSecret)
 				if err != nil {
 					logger.Error(err, "Cleanup failed for atlas.")
-					meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
-						metav1.Condition{
-							Type:               "Ready",
-							Status:             metav1.ConditionFalse,
-							Reason:             "DeleteAtlasUserFailed",
-							LastTransitionTime: metav1.NewTime(time.Now()),
-							Message:            fmt.Sprintf("Failed to delete atlas user while cleaning resource. You may need to manually remove the finalizer: %s", err.Error()),
-						})
+					if isStatusReady(mongodbAccessRequestCR) {
+						meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+							metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionFalse,
+								Reason:             "DeleteAtlasUserFailed",
+								LastTransitionTime: metav1.NewTime(time.Now()),
+								Message:            fmt.Sprintf("Failed to delete atlas user while cleaning resource. You may need to manually remove the finalizer: %s", err.Error()),
+							})
 
-					return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+						return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+					} else {
+						logger.Info("Ignoring cleanup failed as the resource was not ready")
+					}
 				}
 			} else {
 				err = r.cleanupMongoUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, clusterSecret)
 				if err != nil {
 					logger.Error(err, "Cleanup failed for mongodb.")
-					meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
-						metav1.Condition{
-							Type:               "Ready",
-							Status:             metav1.ConditionFalse,
-							Reason:             "DeleteMongoUserFailed",
-							LastTransitionTime: metav1.NewTime(time.Now()),
-							Message:            fmt.Sprintf("Failed to delete mongo user while cleaning resource. You may need to manually remove the finalizer: %s", err.Error()),
-						})
+					if isStatusReady(mongodbAccessRequestCR) {
+						meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+							metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionFalse,
+								Reason:             "DeleteMongoUserFailed",
+								LastTransitionTime: metav1.NewTime(time.Now()),
+								Message:            fmt.Sprintf("Failed to delete mongo user while cleaning resource. You may need to manually remove the finalizer: %s", err.Error()),
+							})
 
-					return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+						return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+					} else {
+						logger.Info("Ignoring cleanup failed as the resource was not ready")
+					}
 				}
 			}
 
@@ -270,7 +278,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 	}
 
 	// If we are already Ready == true, dont update it again
-	if len(mongodbAccessRequestCR.Status.Conditions) == 0 || mongodbAccessRequestCR.Status.Conditions[0].Status != metav1.ConditionTrue {
+	if !isStatusReady(mongodbAccessRequestCR) {
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 			metav1.Condition{
 				Type:               "Ready",
@@ -569,4 +577,12 @@ func (r *MongoDBAccessRequestReconciler) reconcileAtlasUser(ctx context.Context,
 	logger.Info("Successfully created MongoDB user "+mongodbAccessRequestCR.Spec.UserName, " on ", mongodbAccessRequestCR.Spec.Database)
 
 	return nil
+}
+
+func isStatusReady(mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest) bool {
+	if len(mongodbAccessRequestCR.Status.Conditions) == 0 || mongodbAccessRequestCR.Status.Conditions[0].Status != metav1.ConditionTrue {
+		return false
+	} else {
+		return true
+	}
 }
