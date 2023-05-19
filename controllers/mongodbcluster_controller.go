@@ -98,7 +98,7 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				Status:             metav1.ConditionFalse,
 				Reason:             "SecretReadFailed",
 				LastTransitionTime: metav1.NewTime(time.Now()),
-				Message:            fmt.Sprintf("Failed to read connection secret %s: %s", mongodbClusterCR.Spec.ConnectionSecret, err.Error()),
+				Message:            fmt.Sprintf("Failed to read connection secret %s/%s: %s", mongodbClusterCR.Spec.ConnectionSecretNamespace, mongodbClusterCR.Spec.ConnectionSecret, err.Error()),
 			})
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 	}
