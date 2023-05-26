@@ -172,7 +172,7 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: production
-production: generate manifests build docker-build docker-push install ## Build everything including the final manifests for installation in production.
+production: generate manifests build ## Generate everything including the final manifests for installation in production.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/manager > production/airlock-deployment.yaml
 	$(KUSTOMIZE) build config/crd > production/airlock-crd.yaml
