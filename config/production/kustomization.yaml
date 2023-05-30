@@ -2,6 +2,6 @@ bases:
 - ../default
 
 patches:
-- path: image_pull_secret.yaml
+- path: image_pull_secret_patch.yaml
   target:
     kind: Deployment
