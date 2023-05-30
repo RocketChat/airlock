@@ -593,6 +593,8 @@ spec:
           capabilities:
             drop:
             - ALL
+      imagePullSecrets:
+      - name: rc-registry-cred
       securityContext:
         runAsNonRoot: true
       serviceAccountName: airlock-controller-manager

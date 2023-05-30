@@ -175,7 +175,7 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 production: generate manifests kustomize ## Generate everything including the final manifests for installation in production.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	mkdir -p production
-	$(KUSTOMIZE) build config/default > production/airlock-aio.yaml
+	$(KUSTOMIZE) build config/production > production/airlock-aio.yaml
 
 ##@ Build Dependencies
 
