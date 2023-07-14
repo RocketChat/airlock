@@ -16,11 +16,6 @@ jobs:
   build-and-test:
     name: Build and test
     runs-on: ubuntu-latest
-
-    # Service containers to run with `container-job`
-    #services:
-      # none currently
-
     steps:
       - uses: actions/checkout@v3
         with:
@@ -30,15 +25,6 @@ jobs:
         with:
           go-version: '>=1.19.0'
           cache: false
-      - name: Download dependencies
-        run: |
-          git config --global url."https://rocketchat-cloudbot:$PRIVATE_REPO_ACCESS_KEY@github.com".insteadOf "https://github.com"
-          cd $__W_SRC_REL
-          go mod tidy
-          go mod download
-        env:
-          PRIVATE_REPO_ACCESS_KEY: ${{ secrets.PRIVATE_REPO_ACCESS_KEY }}
-          GOPRIVATE: github.com/RocketChat
       - name: Build binary
         run: |
           cd $__W_SRC_REL
@@ -47,7 +33,6 @@ jobs:
       - name: Login to Docker Registry
         uses: docker/login-action@v2
         with:
-          registry: dockerhub.com
           username: ${{ secrets.DOCKERREGISTRY_USERNAME }}
           password: ${{ secrets.DOCKERREGISTRY_PASSWORD }}
       - name: Build and push
@@ -58,5 +43,5 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            dockerhub.com/airlock:${{github.sha}}
+            rocketchat/airlock:${{github.sha}}
 
