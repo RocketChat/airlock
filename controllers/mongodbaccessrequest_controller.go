@@ -98,19 +98,6 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 
 	mongodbClusterCR := &airlockv1alpha1.MongoDBCluster{}
 
-	err = r.generateAttributes(ctx, mongodbAccessRequestCR)
-	if err != nil {
-		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
-			metav1.Condition{
-				Type:               "Ready",
-				Status:             metav1.ConditionFalse,
-				Reason:             "AttributeGenerationFailed",
-				LastTransitionTime: metav1.NewTime(time.Now()),
-				Message:            fmt.Sprintf("Attribute generation failed with error: %s", err.Error()),
-			})
-		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
-	}
-
 	err = r.Get(ctx, types.NamespacedName{Namespace: "", Name: mongodbAccessRequestCR.Spec.ClusterName}, mongodbClusterCR)
 	if err != nil {
 		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
@@ -120,6 +107,19 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 				Reason:             "GetMongoDBClusterFailed",
 				LastTransitionTime: metav1.NewTime(time.Now()),
 				Message:            fmt.Sprintf("Failed to get MongoDBCluster resource for %s: %s", mongodbAccessRequestCR.Spec.ClusterName, err.Error()),
+			})
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
+	}
+
+	err = r.generateAttributes(ctx, mongodbAccessRequestCR, mongodbClusterCR)
+	if err != nil {
+		meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
+			metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "AttributeGenerationFailed",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				Message:            fmt.Sprintf("Attribute generation failed with error: %s", err.Error()),
 			})
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbAccessRequestCR)})
 	}
@@ -374,7 +374,7 @@ func (r *MongoDBAccessRequestReconciler) reconcileSecret(ctx context.Context, re
 	return nil
 }
 
-func (r *MongoDBAccessRequestReconciler) generateAttributes(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest) error {
+func (r *MongoDBAccessRequestReconciler) generateAttributes(ctx context.Context, mongodbAccessRequestCR *airlockv1alpha1.MongoDBAccessRequest, mongodbClusterCR *airlockv1alpha1.MongoDBCluster) error {
 	changed := false
 
 	if mongodbAccessRequestCR.Spec.Database == "" {
@@ -383,7 +383,7 @@ func (r *MongoDBAccessRequestReconciler) generateAttributes(ctx context.Context,
 	}
 
 	if mongodbAccessRequestCR.Spec.UserName == "" {
-		mongodbAccessRequestCR.Spec.UserName = mongodbAccessRequestCR.Name
+		mongodbAccessRequestCR.Spec.UserName = mongodbClusterCR.Spec.UserNamePrefix + mongodbAccessRequestCR.Name
 		changed = true
 	}
 

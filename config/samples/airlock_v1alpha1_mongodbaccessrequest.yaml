@@ -10,5 +10,14 @@ kind: MongoDBAccessRequest
 metadata:
   name: obrigado
 spec:
+  # In which cluster to create the user.
   clusterName: teste-atlas1
 
+  # Optional. Username to be created in the cluster. If not provided, will be the same as the access request name.
+  # userName: obrigado
+
+  # Optional. Database to be used for the user. If not provided, the user will have access to one that matches the access request name
+  # database: obrigado
+
+  # Optional. Secret name where the credentials will be stored. If not provided, will be the same as the access request name.
+  # secretName: obrigado

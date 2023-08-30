@@ -68,6 +68,10 @@ spec:
                 description: If this is set, Atlas API will be used instead of the
                   regular mongo auth path.
                 type: boolean
+              userNamePrefix:
+                description: Append this prefix to all default/generated usernames
+                  for this cluster. Will be overriden if "username" is specified.
+                type: string
             required:
             - connectionSecret
             - hostTemplate

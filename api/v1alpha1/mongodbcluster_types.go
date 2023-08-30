@@ -43,6 +43,9 @@ type MongoDBClusterSpec struct {
 	// +kubebuilder:default=mongodb
 	PrefixTemplate string `json:"prefixTemplate,omitempty"`
 
+	// Append this prefix to all default/generated usernames for this cluster. Will be overriden if "username" is specified.
+	UserNamePrefix string `json:"userNamePrefix,omitempty"`
+
 	// If this is set, Atlas API will be used instead of the regular mongo auth path.
 	UseAtlasApi bool `json:"useAtlasApi,omitempty"`
 }
