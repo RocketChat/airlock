@@ -32,3 +32,4 @@ test_replicaset.txt
 mongoValues.yaml
 db-secret.yaml
 db-cluster.yaml
+*.ignore

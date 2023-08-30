@@ -14,12 +14,27 @@ kind: MongoDBCluster
 metadata:
   name: teste-atlas1
 spec:
-  useAtlasApi: true
+  # The host with port that clients will receive when requesting credentials.
   hostTemplate: "cluster0.vpz0mct.mongodb.net"
-  optionsTemplate: ?retryWrites=true&w=majority
-  prefixTemplate: mongodb+srv
+
+  # Secret in which Airlock will look for a ConnectionString or Atlas credentials, that will be used to connect to the cluster. 
   connectionSecret: airlock-atlas-connection
+
+  # Optional. If this is set, Atlas API will be used instead of the regular mongo auth path.
+  useAtlasApi: true
+
+  # Optional. Extra connection string parameters that will be added to the connection string.
+  optionsTemplate: ?retryWrites=true&w=majority
+
+  # Optional. The prefix used when building the connection string. Defaults to "mongodb"
+  prefixTemplate: mongodb+srv
+
+  # Optional. Namespace where the connection secret is located. Defaults to "airlock-system"
   connectionSecretNamespace: airlock-system
+
+  # Optional. Append this prefix to all default/generated usernames for this cluster. Will be ignored if "username" is already set on the access request.
+  userNamePrefix: test-use1-
+
 ---
 apiVersion: v1
 kind: Secret
@@ -28,6 +43,7 @@ metadata:
   namespace: airlock-system
 type: Opaque
 stringData:
+  # It should have enough privileges to manage users and access. This is not gonna be used by the created users.
   connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/test?replicaSet=rs0"
   
 ---
