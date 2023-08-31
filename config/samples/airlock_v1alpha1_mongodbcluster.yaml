@@ -32,7 +32,7 @@ spec:
   # Optional. Namespace where the connection secret is located. Defaults to "airlock-system"
   connectionSecretNamespace: airlock-system
 
-  # Optional. Append this prefix to all default/generated usernames for this cluster. Will be ignored if "username" is already set on the access request.
+  # Optional. Prepend this prefix to all default/generated usernames for this cluster. Will be ignored if "username" is already set on the access request.
   userNamePrefix: test-use1-
 
 ---
