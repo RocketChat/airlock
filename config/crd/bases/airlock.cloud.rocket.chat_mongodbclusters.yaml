@@ -41,6 +41,11 @@ spec:
             type: object
           spec:
             properties:
+              allowOnAtlasFirewall:
+                description: If this is set, all the kubernetes nodes on the cluster
+                  will be added to the Atlas firewall, using rke.cattle.io/external-ip
+                  annotation.
+                type: boolean
               connectionSecret:
                 description: Secret in which Airlock will look for a ConnectionString
                   or Atlas credentials, that will be used to connect to the cluster.

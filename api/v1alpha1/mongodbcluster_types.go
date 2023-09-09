@@ -48,6 +48,9 @@ type MongoDBClusterSpec struct {
 
 	// If this is set, Atlas API will be used instead of the regular mongo auth path.
 	UseAtlasApi bool `json:"useAtlasApi,omitempty"`
+
+	// If this is set, along with useAtlasApi, all the kubernetes nodes on the cluster will be added to the Atlas firewall, using the rke.cattle.io/external-ip annotation.
+	AllowOnAtlasFirewall bool `json:"allowOnAtlasFirewall,omitempty"`
 }
 
 // MongoDBClusterStatus defines the observed state of MongoDBCluster

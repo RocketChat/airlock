@@ -19,9 +19,12 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
+	"go.mongodb.org/atlas/mongodbatlas"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -120,6 +123,11 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 		}
+
+		// Add nodes to Atlas firewall
+		if mongodbClusterCR.Spec.AllowOnAtlasFirewall {
+			r.reconcileAtlasFirewall(ctx, mongodbClusterCR, secret)
+		}
 	} else {
 		err = testMongoConnection(ctx, mongodbClusterCR, secret)
 		if err != nil {
@@ -194,6 +202,35 @@ func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&source.Kind{Type: &corev1.Secret{}},
 			handler.EnqueueRequestsFromMapFunc(r.findObjectsForSecret),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			&source.Kind{Type: &corev1.Node{}},
+			handler.EnqueueRequestsFromMapFunc(func(node client.Object) []reconcile.Request {
+				mongodbClusterCR := &airlockv1alpha1.MongoDBClusterList{}
+				listOps := &client.ListOptions{
+					Namespace: "",
+				}
+
+				err := r.List(context.TODO(), mongodbClusterCR, listOps)
+				if err != nil {
+					return []reconcile.Request{}
+				}
+
+				requests := make([]reconcile.Request, 0)
+				for _, item := range mongodbClusterCR.Items {
+					if item.Spec.AllowOnAtlasFirewall {
+						requests = append(requests, reconcile.Request{
+							NamespacedName: types.NamespacedName{
+								Name:      item.GetName(),
+								Namespace: item.GetNamespace(),
+							},
+						})
+					}
+				}
+
+				return requests
+			}),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Complete(r)
@@ -331,4 +368,89 @@ func canCreateUsers(logger logr.Logger, roles primitive.A) bool {
 	}
 
 	return false
+}
+
+func (r *MongoDBClusterReconciler) reconcileAtlasFirewall(ctx context.Context, mongodbClusterCR *airlockv1alpha1.MongoDBCluster, secret *corev1.Secret) error {
+	logger := log.FromContext(ctx)
+
+	AIRLOCK_PREFIX := "Airlock-"
+	IP_ANNOTATION := "rke.cattle.io/external-ip"
+
+	logger.Info("Reconciling atlas firewall for " + mongodbClusterCR.Name)
+
+	client, atlasGroupID, err := getAtlasClientFromSecret(secret)
+	if err != nil {
+		logger.Error(err, "Couldn't get a client for Atlas")
+		return err
+	}
+
+	// Get all nodes in the cluster
+	nodeList := &corev1.NodeList{}
+	err = r.List(ctx, nodeList)
+	if err != nil {
+		logger.Error(err, "Couldn't get nodes in the cluster")
+		return err
+	}
+
+	// Get all nodes in the Atlas firewall
+	firewallList, _, err := client.ProjectIPAccessList.List(context.Background(), atlasGroupID, nil)
+	if err != nil {
+		logger.Error(err, "Couldn't get nodes in the Atlas firewall")
+		return err
+	}
+
+	// Look for nodes in atlas firewall that don't match the current nodes
+	for _, entry := range firewallList.Results {
+		found := false
+		for _, node := range nodeList.Items {
+			externalIP := node.Annotations[IP_ANNOTATION]
+
+			if externalIP == entry.IPAddress && AIRLOCK_PREFIX+node.Name == entry.Comment {
+				found = true
+				break
+			}
+		}
+
+		// If the node has the airlock prefix but wasn't found locally, remove it from the Atlas firewall
+		if strings.HasPrefix(entry.Comment, AIRLOCK_PREFIX) && !found {
+			logger.Info("Removing node " + entry.Comment + " from the Atlas firewall")
+			_, err := client.ProjectIPAccessList.Delete(context.Background(), atlasGroupID, entry.IPAddress)
+			if err != nil {
+				logger.Error(err, "Couldn't remove node "+entry.Comment+" from the Atlas firewall")
+				return err
+			}
+		}
+	}
+
+	// Add missing nodes to the Atlas firewall
+	entriesToAdd := []*mongodbatlas.ProjectIPAccessList{}
+
+	for _, node := range nodeList.Items {
+		externalIP := node.Annotations[IP_ANNOTATION]
+
+		// Check if node already exists in the firewall
+		found := false
+		for _, entry := range firewallList.Results {
+			if externalIP == entry.IPAddress && AIRLOCK_PREFIX+node.Name == entry.Comment {
+				found = true
+				break
+			}
+		}
+
+		// If not, add it
+		if !found && externalIP != "" {
+			entriesToAdd = append(entriesToAdd, &mongodbatlas.ProjectIPAccessList{
+				IPAddress: externalIP,
+				Comment:   AIRLOCK_PREFIX + node.Name,
+			})
+			logger.Info("Adding node " + node.Name + " to the Atlas firewall")
+		}
+	}
+
+	_, response, err := client.ProjectIPAccessList.Create(context.Background(), atlasGroupID, entriesToAdd)
+	if err != nil || response.StatusCode != http.StatusCreated {
+		logger.Error(err, "Couldn't add nodes to the Atlas firewall")
+		return err
+	}
+	return nil
 }
