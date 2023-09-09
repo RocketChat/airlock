@@ -126,7 +126,19 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		// Add nodes to Atlas firewall
 		if mongodbClusterCR.Spec.AllowOnAtlasFirewall {
-			r.reconcileAtlasFirewall(ctx, mongodbClusterCR, secret)
+			err = r.reconcileAtlasFirewall(ctx, mongodbClusterCR, secret)
+			if err != nil {
+				meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
+					metav1.Condition{
+						Type:               "Ready",
+						Status:             metav1.ConditionFalse,
+						Reason:             "AtlasFirewallFailed",
+						LastTransitionTime: metav1.NewTime(time.Now()),
+						Message:            fmt.Sprintf("Failed to add nodes to atlas firewall: %s", err.Error()),
+					})
+
+				return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
+			}
 		}
 	} else {
 		err = testMongoConnection(ctx, mongodbClusterCR, secret)
@@ -386,6 +398,7 @@ func (r *MongoDBClusterReconciler) reconcileAtlasFirewall(ctx context.Context, m
 
 	// Get all nodes in the cluster
 	nodeList := &corev1.NodeList{}
+
 	err = r.List(ctx, nodeList)
 	if err != nil {
 		logger.Error(err, "Couldn't get nodes in the cluster")
@@ -402,6 +415,7 @@ func (r *MongoDBClusterReconciler) reconcileAtlasFirewall(ctx context.Context, m
 	// Look for nodes in atlas firewall that don't match the current nodes
 	for _, entry := range firewallList.Results {
 		found := false
+
 		for _, node := range nodeList.Items {
 			externalIP := node.Annotations[IP_ANNOTATION]
 
@@ -414,6 +428,7 @@ func (r *MongoDBClusterReconciler) reconcileAtlasFirewall(ctx context.Context, m
 		// If the node has the airlock prefix but wasn't found locally, remove it from the Atlas firewall
 		if strings.HasPrefix(entry.Comment, AIRLOCK_PREFIX) && !found {
 			logger.Info("Removing node " + entry.Comment + " from the Atlas firewall")
+
 			_, err := client.ProjectIPAccessList.Delete(context.Background(), atlasGroupID, entry.IPAddress)
 			if err != nil {
 				logger.Error(err, "Couldn't remove node "+entry.Comment+" from the Atlas firewall")
@@ -430,6 +445,7 @@ func (r *MongoDBClusterReconciler) reconcileAtlasFirewall(ctx context.Context, m
 
 		// Check if node already exists in the firewall
 		found := false
+
 		for _, entry := range firewallList.Results {
 			if externalIP == entry.IPAddress && AIRLOCK_PREFIX+node.Name == entry.Comment {
 				found = true
@@ -452,5 +468,6 @@ func (r *MongoDBClusterReconciler) reconcileAtlasFirewall(ctx context.Context, m
 		logger.Error(err, "Couldn't add nodes to the Atlas firewall")
 		return err
 	}
+
 	return nil
 }
