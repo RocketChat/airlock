@@ -41,7 +41,7 @@ spec:
             type: object
           spec:
             properties:
-              atlasNodeIPAccessStrategy:
+              atlasNodeIpAccessStrategy:
                 description: If this is set, along with useAtlasApi, all the kubernetes
                   nodes on the cluster will be added to the Atlas firewall. The only
                   available value right now is "rancher-annotation", which uses the

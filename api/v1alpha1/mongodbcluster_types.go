@@ -50,7 +50,7 @@ type MongoDBClusterSpec struct {
 	UseAtlasApi bool `json:"useAtlasApi,omitempty"`
 
 	// If this is set, along with useAtlasApi, all the kubernetes nodes on the cluster will be added to the Atlas firewall. The only available value right now is "rancher-annotation", which uses the rke.cattle.io/external-ip annotation.
-	AtlasNodeIPAccessStrategy string `json:"atlasNodeIPAccessStrategy,omitempty"`
+	AtlasNodeIPAccessStrategy string `json:"atlasNodeIpAccessStrategy,omitempty"`
 }
 
 // MongoDBClusterStatus defines the observed state of MongoDBCluster

@@ -36,7 +36,7 @@ spec:
   userNamePrefix: test-use1-
 
   # Optional. If this is set, along with useAtlasApi, all the kubernetes nodes on the cluster will be added to the Atlas firewall. The only available value right now is "rancher-annotation", which uses the rke.cattle.io/external-ip annotation.
-  atlasNodeIPAccessStrategy: rancher-annotation
+  atlasNodeIpAccessStrategy: rancher-annotation
 
 ---
 apiVersion: v1
