@@ -35,8 +35,8 @@ spec:
   # Optional. Append this prefix to all default/generated usernames for this cluster. Will be ignored if "username" is already set on the access request.
   userNamePrefix: test-use1-
 
-  # Optional. If this is set, along with useAtlasApi, all the kubernetes nodes on the cluster will be added to the Atlas firewall, using the rke.cattle.io/external-ip annotation.
-  allowOnAtlasFirewall: true
+  # Optional. If this is set, along with useAtlasApi, all the kubernetes nodes on the cluster will be added to the Atlas firewall. The only available value right now is "rancher-annotation", which uses the rke.cattle.io/external-ip annotation.
+  atlasNodeIPAccessStrategy: rancher-annotation
 
 ---
 apiVersion: v1

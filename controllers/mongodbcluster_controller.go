@@ -125,7 +125,7 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		// Add nodes to Atlas firewall
-		if mongodbClusterCR.Spec.AllowOnAtlasFirewall {
+		if mongodbClusterCR.Spec.AtlasNodeIPAccessStrategy == "rancher-annotation" {
 			err = r.reconcileAtlasFirewall(ctx, mongodbClusterCR, secret)
 			if err != nil {
 				meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
@@ -231,7 +231,7 @@ func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				requests := make([]reconcile.Request, 0)
 				for _, item := range mongodbClusterCR.Items {
-					if item.Spec.AllowOnAtlasFirewall {
+					if item.Spec.AtlasNodeIPAccessStrategy != "" {
 						requests = append(requests, reconcile.Request{
 							NamespacedName: types.NamespacedName{
 								Name:      item.GetName(),
