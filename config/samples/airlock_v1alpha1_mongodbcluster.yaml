@@ -15,7 +15,7 @@ metadata:
   name: teste-atlas1
 spec:
   # The host with port that clients will receive when requesting credentials.
-  hostTemplate: "cluster0.vpz0mct.mongodb.net"
+  hostTemplate: "cluster0.4h0sjun.mongodb.net"
 
   # Secret in which Airlock will look for a ConnectionString or Atlas credentials, that will be used to connect to the cluster. 
   connectionSecret: airlock-atlas-connection
@@ -38,6 +38,22 @@ spec:
   # Optional. If this is set, along with useAtlasApi, all the kubernetes nodes on the cluster will be added to the Atlas firewall. The only available value right now is "rancher-annotation", which uses the rke.cattle.io/external-ip annotation.
   atlasNodeIpAccessStrategy: rancher-annotation
 
+  atlasScheduledAutoscaling:
+    # Whether the autoscaling is enabled or not. Defaults to false.
+    enabled: true
+    
+    # The low tier the cluster will scale down to. Defaults to "M20".
+    lowTier: "M10"
+    
+    # The high tier the cluster will scale up to. Defaults to "M50".
+    highTier: "M20"
+
+    # The cron expression that will be used to scale down the cluster. Defaults to "0 20 * * 1-5".
+    scaleDownExpression: "* * * * *"
+
+    # The cron expression that will be used to scale up the cluster. Defaults to "0 6 * * 1-5".
+    scaleUpExpression: "0 0 * * *"
+
 ---
 apiVersion: v1
 kind: Secret
@@ -47,7 +63,7 @@ metadata:
 type: Opaque
 stringData:
   # It should have enough privileges to manage users and access. This is not gonna be used by the created users.
-  connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/test?replicaSet=rs0"
+  connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/test?replicaSet=rs*"
   
 ---
 apiVersion: v1

@@ -1,6 +1,9 @@
 package controllers
 
 import (
+	"context"
+	"strings"
+
 	"github.com/mongodb-forks/digest"
 	"go.mongodb.org/atlas/mongodbatlas"
 	corev1 "k8s.io/api/core/v1"
@@ -43,4 +46,18 @@ func getAtlasClientFromSecret(secret *corev1.Secret) (*mongodbatlas.Client, stri
 	client := mongodbatlas.NewClient(tc)
 
 	return client, atlasGroupID, nil
+}
+
+func getClusterNameFromHostTemplate(ctx context.Context, client *mongodbatlas.Client, groupID, hostTemplate string) (string, error) {
+	clusters, _, err := client.Clusters.List(ctx, groupID, &mongodbatlas.ListOptions{})
+	if err != nil {
+		return "", err
+	}
+	for _, cluster := range clusters {
+		if strings.Contains(cluster.SrvAddress, hostTemplate) {
+			return cluster.Name, nil
+		}
+	}
+
+	return "", errors.NewBadRequest("Cluster not found for when searching for it's connectionString in atlas")
 }

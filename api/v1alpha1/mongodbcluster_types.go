@@ -51,6 +51,33 @@ type MongoDBClusterSpec struct {
 
 	// If this is set, along with useAtlasApi, all the kubernetes nodes on the cluster will be added to the Atlas firewall. The only available value right now is "rancher-annotation", which uses the rke.cattle.io/external-ip annotation.
 	AtlasNodeIPAccessStrategy string `json:"atlasNodeIpAccessStrategy,omitempty"`
+
+	AtlasScheduledAutoscaling *AtlasScheduledAutoscaling `json:"atlasScheduledAutoscaling,omitempty"`
+}
+
+type AtlasScheduledAutoscaling struct {
+	// If this is set, the cluster will be enabled for scheduled autoscaling.
+	// The way it works is that the cluster will be scaled up to the high tier at the specified time, and scaled down to the lowTier at the specified time.
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty"`
+
+	// The minimum tier the cluster can scale down to.
+	// +kubebuilder:validation:Enum=M0;M2;M5;M10;M20;M30;M40;M50;M60;M80;M140;M200;M300;M400;M500;M700;M900;M1000
+	// +kubebuilder:default="M20"
+	LowTier string `json:"lowTier,omitempty"`
+
+	// The maximum tier the cluster can scale up to.
+	// +kubebuilder:validation:Enum=M0;M2;M5;M10;M20;M30;M40;M50;M60;M80;M140;M200;M300;M400;M500;M700;M900;M1000
+	// +kubebuilder:default="M50"
+	HighTier string `json:"highTier,omitempty"`
+
+	// Cron expression for the time the cluster should be scaled down.
+	// +kubebuilder:default="0 20 * * 1-5"
+	ScaleDownExpression string `json:"scaleDownExpression,omitempty"`
+
+	// Cron expression for the time the cluster should be scaled up.
+	// +kubebuilder:default="0 6 * * 1-5"
+	ScaleUpExpression string `json:"scaleUpExpression,omitempty"`
 }
 
 // MongoDBClusterStatus defines the observed state of MongoDBCluster
