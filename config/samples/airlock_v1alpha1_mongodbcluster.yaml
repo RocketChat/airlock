@@ -63,7 +63,7 @@ metadata:
 type: Opaque
 stringData:
   # It should have enough privileges to manage users and access. This is not gonna be used by the created users.
-  connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/test?replicaSet=rs*"
+  connectionString: "mongodb://rcadmin:pamonha@mongodb.airlock-test/test?replicaSet=rs0"
   
 ---
 apiVersion: v1
