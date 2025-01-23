@@ -60,9 +60,6 @@ spec:
                     default: M50
                     description: The maximum tier the cluster can scale up to.
                     enum:
-                    - M0
-                    - M2
-                    - M5
                     - M10
                     - M20
                     - M30
@@ -72,20 +69,11 @@ spec:
                     - M80
                     - M140
                     - M200
-                    - M300
-                    - M400
-                    - M500
-                    - M700
-                    - M900
-                    - M1000
                     type: string
                   lowTier:
                     default: M20
                     description: The minimum tier the cluster can scale down to.
                     enum:
-                    - M0
-                    - M2
-                    - M5
                     - M10
                     - M20
                     - M30
@@ -95,19 +83,13 @@ spec:
                     - M80
                     - M140
                     - M200
-                    - M300
-                    - M400
-                    - M500
-                    - M700
-                    - M900
-                    - M1000
                     type: string
-                  scaleDownExpression:
+                  scaleDownCronExpression:
                     default: 0 20 * * 1-5
                     description: Cron expression for the time the cluster should be
                       scaled down.
                     type: string
-                  scaleUpExpression:
+                  scaleUpCronExpression:
                     default: 0 6 * * 1-5
                     description: Cron expression for the time the cluster should be
                       scaled up.

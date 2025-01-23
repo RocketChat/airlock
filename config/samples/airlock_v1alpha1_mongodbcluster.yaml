@@ -49,10 +49,10 @@ spec:
     highTier: "M20"
 
     # The cron expression that will be used to scale down the cluster. Defaults to "0 20 * * 1-5".
-    scaleDownExpression: "* * * * *"
+    scaleDownCronExpression: "* * * * *"
 
     # The cron expression that will be used to scale up the cluster. Defaults to "0 6 * * 1-5".
-    scaleUpExpression: "0 0 * * *"
+    scaleUpCronExpression: "0 0 * * *"
 
 ---
 apiVersion: v1

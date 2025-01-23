@@ -53,6 +53,7 @@ func getClusterNameFromHostTemplate(ctx context.Context, client *mongodbatlas.Cl
 	if err != nil {
 		return "", err
 	}
+
 	for _, cluster := range clusters {
 		if strings.Contains(cluster.SrvAddress, hostTemplate) {
 			return cluster.Name, nil

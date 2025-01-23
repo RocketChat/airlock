@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/go-logr/logr"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.mongodb.org/atlas/mongodbatlas"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -38,11 +39,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -55,7 +58,27 @@ type MongoDBClusterReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	gocron.Scheduler
+	EventRecorder record.EventRecorder
 }
+
+var (
+	// Metrics
+	ScalingUpErrorGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "airlock_scaling_up_failure",
+			Help: "When above 0, means a cluster has failed to scale up",
+		},
+		[]string{"cluster"},
+	)
+
+	ScalingDownErrorGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "airlock_scaling_down_failure",
+			Help: "When above 0, means a cluster has failed to scale down",
+		},
+		[]string{"cluster"},
+	)
+)
 
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbclusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbclusters/status,verbs=get;update;patch
@@ -158,7 +181,6 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 		}
-
 	} else {
 		err = testMongoConnection(ctx, mongodbClusterCR, secret)
 		if err != nil {
@@ -230,6 +252,7 @@ func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	{
 		var err error
+
 		r.Scheduler, err = gocron.NewScheduler()
 		if err != nil {
 			ctrl.Log.WithName("controllers").WithName("MongoDBCluster").V(1).Error(err, "Error creating scheduler")
@@ -238,6 +261,10 @@ func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 		r.Scheduler.Start()
 	}
+
+	r.EventRecorder = mgr.GetEventRecorderFor("airlock")
+
+	metrics.Registry.MustRegister(ScalingUpErrorGauge, ScalingDownErrorGauge)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&airlockv1alpha1.MongoDBCluster{}).
@@ -508,8 +535,8 @@ func (r *MongoDBClusterReconciler) reconcileAtlasScheduledAutoscaling(ctx contex
 	scheduledAutoscaling := mongodbClusterCR.Spec.AtlasScheduledAutoscaling
 
 	if scheduledAutoscaling != nil && scheduledAutoscaling.Enabled {
-
 		var foundUp gocron.Job
+
 		var foundDown gocron.Job
 
 		jobs := r.Scheduler.Jobs()
@@ -544,19 +571,26 @@ func (r *MongoDBClusterReconciler) reconcileAtlasScheduledAutoscaling(ctx contex
 			return err
 		}
 
-		if foundDown == nil || foundDown.Tags()[1] != scheduledAutoscaling.ScaleDownExpression+scheduledAutoscaling.LowTier {
-
+		if foundDown == nil || foundDown.Tags()[1] != scheduledAutoscaling.ScaleDownCronExpression+scheduledAutoscaling.LowTier {
 			if foundDown != nil {
 				logger.Info("Removing outdated downscaling job for " + mongodbClusterCR.Name)
-				r.Scheduler.RemoveJob(foundDown.ID())
+
+				err = r.Scheduler.RemoveJob(foundDown.ID())
+				if err != nil {
+					logger.Error(err, "Error removing outdated downscaling job")
+					return err
+				}
 			}
 
-			logger.Info("Creating scheduled downscaling job for " + mongodbClusterCR.Name + " with expression " + scheduledAutoscaling.ScaleDownExpression + " to " + scheduledAutoscaling.LowTier)
-			r.Scheduler.NewJob(
-				gocron.CronJob(scheduledAutoscaling.ScaleDownExpression, false),
+			logger.Info("Creating scheduled downscaling job for " + mongodbClusterCR.Name + " with expression " + scheduledAutoscaling.ScaleDownCronExpression + " to " + scheduledAutoscaling.LowTier)
+
+			_, err = r.Scheduler.NewJob(
+				gocron.CronJob(scheduledAutoscaling.ScaleDownCronExpression, false),
 				gocron.NewTask(
 					func() error {
 						logger.Info("Scaling down " + mongodbClusterCR.Name + " to " + scheduledAutoscaling.LowTier)
+
+						r.EventRecorder.Event(mongodbClusterCR, corev1.EventTypeNormal, "Scaling", "Scaling down to "+scheduledAutoscaling.LowTier)
 
 						_, response, err := client.Clusters.Update(ctx, atlasGroupID, clusterName, &mongodbatlas.Cluster{
 							ProviderSettings: &mongodbatlas.ProviderSettings{
@@ -568,30 +602,49 @@ func (r *MongoDBClusterReconciler) reconcileAtlasScheduledAutoscaling(ctx contex
 
 						if err != nil || response.StatusCode != http.StatusOK {
 							logger.Error(err, "Couldn't scale down "+mongodbClusterCR.Name)
-							// TODO: Flip a metric so we can alert on this. This one is a warning.
+							r.EventRecorder.Event(mongodbClusterCR, corev1.EventTypeWarning, "Scaling", "Failed to scale down to "+scheduledAutoscaling.LowTier)
+
+							// Flip a metric so we can alert on this. This one is a warning.
+							ScalingDownErrorGauge.WithLabelValues(mongodbClusterCR.Name).Inc()
+
 							return err
 						}
+
+						// Reset metric if the reconcile then succeeded
+						ScalingUpErrorGauge.WithLabelValues(mongodbClusterCR.Name).Set(0)
+
 						return nil
 					},
 				),
-				gocron.WithTags(mongodbClusterCR.Name, scheduledAutoscaling.ScaleDownExpression+scheduledAutoscaling.LowTier, "down"),
+				gocron.WithTags(mongodbClusterCR.Name, scheduledAutoscaling.ScaleDownCronExpression+scheduledAutoscaling.LowTier, "down"),
 			)
+
+			if err != nil {
+				logger.Error(err, "Error creating new upscaling job")
+				return err
+			}
 		}
 
-		if foundUp == nil || foundUp.Tags()[1] != scheduledAutoscaling.ScaleUpExpression+scheduledAutoscaling.HighTier {
-
+		if foundUp == nil || foundUp.Tags()[1] != scheduledAutoscaling.ScaleUpCronExpression+scheduledAutoscaling.HighTier {
 			if foundUp != nil {
 				logger.Info("Removing outdated upscaling job for " + mongodbClusterCR.Name)
-				r.Scheduler.RemoveJob(foundUp.ID())
+
+				err = r.Scheduler.RemoveJob(foundUp.ID())
+				if err != nil {
+					logger.Error(err, "Error removing outdated upscaling job")
+					return err
+				}
 			}
 
-			logger.Info("Creating scheduled upscaling job for " + mongodbClusterCR.Name + " with expression " + scheduledAutoscaling.ScaleUpExpression + " to " + scheduledAutoscaling.HighTier)
+			logger.Info("Creating scheduled upscaling job for " + mongodbClusterCR.Name + " with expression " + scheduledAutoscaling.ScaleUpCronExpression + " to " + scheduledAutoscaling.HighTier)
 
-			r.Scheduler.NewJob(
-				gocron.CronJob(scheduledAutoscaling.ScaleUpExpression, false),
+			_, err = r.Scheduler.NewJob(
+				gocron.CronJob(scheduledAutoscaling.ScaleUpCronExpression, false),
 				gocron.NewTask(
 					func() error {
 						logger.Info("Scaling up " + mongodbClusterCR.Name + " to " + scheduledAutoscaling.HighTier)
+
+						r.EventRecorder.Event(mongodbClusterCR, corev1.EventTypeNormal, "Scaling", "Scaling up to "+scheduledAutoscaling.HighTier)
 
 						_, response, err := client.Clusters.Update(ctx, atlasGroupID, clusterName, &mongodbatlas.Cluster{
 							ProviderSettings: &mongodbatlas.ProviderSettings{
@@ -603,18 +656,31 @@ func (r *MongoDBClusterReconciler) reconcileAtlasScheduledAutoscaling(ctx contex
 
 						if err != nil || response.StatusCode != http.StatusOK {
 							logger.Error(err, "Couldn't scale up "+mongodbClusterCR.Name)
-							// TODO: Flip a metric so we can alert on this. If this fails, it's VERY CRITICAL
+							r.EventRecorder.Event(mongodbClusterCR, corev1.EventTypeWarning, "Scaling", "Failed to scale up to "+scheduledAutoscaling.HighTier)
+
+							// Flip a metric so we can alert on this. If this fails, it's VERY CRITICAL
+							ScalingUpErrorGauge.WithLabelValues(mongodbClusterCR.Name).Inc()
+
 							return err
 						}
+
+						// Reset metric if the reconcile then succeeded
+						ScalingUpErrorGauge.WithLabelValues(mongodbClusterCR.Name).Set(0)
+
 						return nil
 					},
 				),
-				gocron.WithTags(mongodbClusterCR.Name, scheduledAutoscaling.ScaleUpExpression+scheduledAutoscaling.HighTier, "up"),
+				gocron.WithTags(mongodbClusterCR.Name, scheduledAutoscaling.ScaleUpCronExpression+scheduledAutoscaling.HighTier, "up"),
 			)
-		}
 
+			if err != nil {
+				logger.Error(err, "Error creating new upscaling job")
+				return err
+			}
+		}
 	} else {
 		r.Scheduler.RemoveByTags(mongodbClusterCR.Name)
 	}
+
 	return nil
 }

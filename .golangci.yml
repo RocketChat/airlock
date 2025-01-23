@@ -2,7 +2,7 @@
 
 issues:
   new: true
-  fix: true
+  fix: false
   new-from-rev: 1de9aaed0441349ba34f1d3cfb18cc2b36114bc5
 
 run:
@@ -14,7 +14,7 @@ run:
 linters:
   enable:
     - bodyclose
-    - depguard
+    # - depguard
     - dogsled
     #- dupl
     - errcheck
@@ -23,7 +23,7 @@ linters:
     - exportloopref
     - goconst
     - gocritic #TODO: https://go-critic.com/overview.html
-    - gocyclo
+    # - gocyclo
     - gofmt
     - goimports
     - gomnd

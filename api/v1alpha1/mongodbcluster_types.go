@@ -62,22 +62,22 @@ type AtlasScheduledAutoscaling struct {
 	Enabled bool `json:"enabled,omitempty"`
 
 	// The minimum tier the cluster can scale down to.
-	// +kubebuilder:validation:Enum=M0;M2;M5;M10;M20;M30;M40;M50;M60;M80;M140;M200;M300;M400;M500;M700;M900;M1000
+	// +kubebuilder:validation:Enum=M10;M20;M30;M40;M50;M60;M80;M140;M200
 	// +kubebuilder:default="M20"
 	LowTier string `json:"lowTier,omitempty"`
 
 	// The maximum tier the cluster can scale up to.
-	// +kubebuilder:validation:Enum=M0;M2;M5;M10;M20;M30;M40;M50;M60;M80;M140;M200;M300;M400;M500;M700;M900;M1000
+	// +kubebuilder:validation:Enum=M10;M20;M30;M40;M50;M60;M80;M140;M200
 	// +kubebuilder:default="M50"
 	HighTier string `json:"highTier,omitempty"`
 
 	// Cron expression for the time the cluster should be scaled down.
 	// +kubebuilder:default="0 20 * * 1-5"
-	ScaleDownExpression string `json:"scaleDownExpression,omitempty"`
+	ScaleDownCronExpression string `json:"scaleDownCronExpression,omitempty"`
 
 	// Cron expression for the time the cluster should be scaled up.
 	// +kubebuilder:default="0 6 * * 1-5"
-	ScaleUpExpression string `json:"scaleUpExpression,omitempty"`
+	ScaleUpCronExpression string `json:"scaleUpCronExpression,omitempty"`
 }
 
 // MongoDBClusterStatus defines the observed state of MongoDBCluster
