@@ -162,6 +162,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 				err = r.cleanupAtlasUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, clusterSecret)
 				if err != nil {
 					logger.Error(err, "Cleanup failed for atlas.")
+
 					if isStatusReady(mongodbAccessRequestCR) {
 						meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 							metav1.Condition{
@@ -181,6 +182,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 				err = r.cleanupMongoUser(ctx, mongodbAccessRequestCR, mongodbClusterCR, clusterSecret)
 				if err != nil {
 					logger.Error(err, "Cleanup failed for mongodb.")
+
 					if isStatusReady(mongodbAccessRequestCR) {
 						meta.SetStatusCondition(&mongodbAccessRequestCR.Status.Conditions,
 							metav1.Condition{
@@ -200,6 +202,7 @@ func (r *MongoDBAccessRequestReconciler) Reconcile(ctx context.Context, req ctrl
 
 			// remove our finalizer from the list and update it.
 			controllerutil.RemoveFinalizer(mongodbAccessRequestCR, airlockFinalizer)
+
 			if err := r.Update(ctx, mongodbAccessRequestCR); err != nil {
 				return ctrl.Result{}, err
 			}
