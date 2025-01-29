@@ -55,10 +55,15 @@ func getClusterNameFromHostTemplate(ctx context.Context, client *mongodbatlas.Cl
 	}
 
 	for _, cluster := range clusters {
+		// Check for the host template in both SrvAddress (mongo+srv:// connection) and MongoURI (legacy replicaset uri with the 3 RS menbers)
 		if strings.Contains(cluster.SrvAddress, hostTemplate) {
+			return cluster.Name, nil
+		}
+
+		if strings.Contains(cluster.MongoURI, hostTemplate) {
 			return cluster.Name, nil
 		}
 	}
 
-	return "", errors.NewBadRequest("Cluster not found for when searching for it's connectionString in atlas")
+	return "", errors.NewBadRequest("Cluster not found when searching for it's connectionString in atlas")
 }
