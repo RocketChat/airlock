@@ -24,32 +24,16 @@ jobs:
           token: ${{ secrets.CI_CLOUD_OPS_PERSONAL_ACCESS_TOKEN }}
           path: cloud-ops
 
-      - name: Create branch
-        run: |
-          cd cloud-ops
-          BRANCH="promote-${{ env.IMAGE_NAME }}-${{ github.event.release.tag_name }}"
-          git checkout -b "$BRANCH"
-
-          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
-
       - name: Update image/tag/version
         run: |
           cd cloud-ops
           CURRENT_TAG="$(yq '.images[] | select(.name | split("/")[-1] == "${{ env.IMAGE_NAME }}") | .newTag' "$FILE_TO_UPDATE")"
           sed -i "s|$CURRENT_TAG|${{ github.event.release.tag_name }}|g" "$FILE_TO_UPDATE"
 
+          cat "$FILE_TO_UPDATE"
+
           echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_ENV
 
-
-
-      - name: Commit and push
-        run: |
-          cd cloud-ops
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add .
-          git commit -m "Update ${{ env.IMAGE_NAME }} to ${{ github.event.release.tag_name }}"
-          git push origin HEAD
 
       - name: Open Pull Request
         uses: peter-evans/create-pull-request@v7
@@ -61,5 +45,5 @@ jobs:
           body: |
             Auto-generated PR to promote `${{ env.IMAGE_NAME }}` to `${{ github.event.release.tag_name }}`
             [Compare changes](https://github.com/RocketChat/${{ env.REPO_NAME }}/compare/${{ env.CURRENT_TAG }}...${{ github.event.release.tag_name }})
-          branch: ${{ env.BRANCH }}
+          branch: promote-${{ env.IMAGE_NAME }}-${{ github.event.release.tag_name }}
           base: master
