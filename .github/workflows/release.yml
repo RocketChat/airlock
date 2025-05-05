@@ -1,8 +1,9 @@
 name: Promote Release to ArgoCD Repo
 
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - master
 
 jobs:
   promote:
@@ -16,7 +17,7 @@ jobs:
     steps:
       - name: Set up yq for yaml parsing
         uses: mikefarah/yq@v4.43.1
-        
+
       - name: Checkout cloud ops
         uses: actions/checkout@v4
         with:
@@ -28,20 +29,19 @@ jobs:
         run: |
           cd cloud-ops
           CURRENT_TAG="$(yq '.images[] | select(.name | split("/")[-1] == "${{ env.IMAGE_NAME }}") | .newTag' "$FILE_TO_UPDATE")"
-          sed -i "s|$CURRENT_TAG|${{ github.event.release.tag_name }}|g" "$FILE_TO_UPDATE"
-
+          sed -i "s|$CURRENT_TAG|$GITHUB_SHA|g" "$FILE_TO_UPDATE"
           echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_ENV
-
+          echo "NEW_TAG=$GITHUB_SHA" >> $GITHUB_ENV
 
       - name: Open Pull Request
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.CI_CLOUD_OPS_PERSONAL_ACCESS_TOKEN }}
           path: cloud-ops
-          commit-message: "Update ${{ env.IMAGE_NAME }} to ${{ github.event.release.tag_name }}"
-          title: "Update ${{ env.IMAGE_NAME }} to ${{ github.event.release.tag_name }}"
+          commit-message: "Update ${{ env.IMAGE_NAME }} to ${{ env.NEW_TAG }}"
+          title: "Update ${{ env.IMAGE_NAME }} to ${{ env.NEW_TAG }}"
           body: |
-            Auto-generated PR to promote `${{ env.IMAGE_NAME }}` to `${{ github.event.release.tag_name }}`
-            [Compare changes](https://github.com/RocketChat/${{ env.REPO_NAME }}/compare/${{ env.CURRENT_TAG }}...${{ github.event.release.tag_name }})
-          branch: promote-${{ env.IMAGE_NAME }}-${{ github.event.release.tag_name }}
+            Auto-generated PR to promote `${{ env.IMAGE_NAME }}` to `${{ env.NEW_TAG }}`
+            [Compare changes](https://github.com/RocketChat/${{ env.REPO_NAME }}/compare/${{ env.CURRENT_TAG }}...${{ env.NEW_TAG }})
+          branch: promote-${{ env.IMAGE_NAME }}
           base: master
