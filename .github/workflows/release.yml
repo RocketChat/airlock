@@ -40,7 +40,7 @@ jobs:
       - name: Get commits between CURRENT_TAG and NEW_TAG
         id: commits
         run: |
-          cd source-repo
+          cd cloud-ops
           echo "Fetching commits between $CURRENT_TAG and $GITHUB_SHA"
           COMMIT_LIST=$(git log --pretty=format:"- [%h](https://github.com/${{ env.REPO_NAME }}/commit/%H) %s (by %an)" $CURRENT_TAG..$GITHUB_SHA || echo "Unable to list commits.")
           echo "COMMIT_LIST<<EOF" >> $GITHUB_ENV
