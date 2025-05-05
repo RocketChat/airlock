@@ -55,6 +55,6 @@ jobs:
           title: "Update ${{ env.IMAGE_NAME }} to ${{ github.event.release.tag_name }}"
           body: |
             Auto-generated PR to promote `${{ env.IMAGE_NAME }}` to `${{ github.event.release.tag_name }}`
-            [Compare changes](https://github.com/RocketChat/${{ env.airlock }}/compare/${{ env.CURRENT_TAG }}...${{ github.event.release.tag_name }})
+            [Compare changes](https://github.com/RocketChat/${{ env.REPO_NAME }}/compare/${{ env.CURRENT_TAG }}...${{ github.event.release.tag_name }})
           branch: ${{ env.BRANCH }}
           base: master
