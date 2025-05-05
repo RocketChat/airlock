@@ -66,6 +66,6 @@ jobs:
             [Compare changes](https://github.com/RocketChat/${{ env.REPO_NAME }}/compare/${{ env.CURRENT_TAG }}...${{ env.NEW_TAG }})
 
             **Commits included:**
-            ${{ env.COMMITS }}
+            ${{ env.COMMIT_LIST }}
           branch: promote-${{ env.IMAGE_NAME }}
           base: master
