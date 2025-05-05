@@ -30,11 +30,16 @@ jobs:
           BRANCH="promote-${{ env.IMAGE_NAME }}-${{ github.event.release.tag_name }}"
           git checkout -b "$BRANCH"
 
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+
       - name: Update image/tag/version
         run: |
           cd cloud-ops
           CURRENT_TAG="$(yq '.images[] | select(.name | split("/")[-1] == "${{ env.IMAGE_NAME }}") | .newTag' "$FILE_TO_UPDATE")"
           sed -i "s|$CURRENT_TAG|${{ github.event.release.tag_name }}|g" "$FILE_TO_UPDATE"
+
+          echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_ENV
+
 
 
       - name: Commit and push
