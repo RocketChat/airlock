@@ -1,0 +1,60 @@
+name: Promote Release to ArgoCD Repo
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    env:
+      CLOUD_OPS_REPO: RocketChat/cloud-ops
+      IMAGE_NAME: airlock
+      REPO_NAME: airlock
+      FILE_TO_UPDATE: kubernetes/base/common/airlock/kustomization.yaml
+
+    steps:
+      - name: Set up yq for yaml parsing
+        uses: mikefarah/yq@v4.43.1
+        
+      - name: Checkout cloud ops
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CLOUD_OPS_REPO }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          path: cloud-ops
+
+      - name: Create branch
+        run: |
+          cd cloud-ops
+          BRANCH="promote-${{ env.IMAGE_NAME }}-${{ github.event.release.tag_name }}"
+          git checkout -b "$BRANCH"
+
+      - name: Update image/tag/version
+        run: |
+          cd cloud-ops
+          CURRENT_TAG="$(yq '.images[] | select(.name | split("/")[-1] == "${{ env.IMAGE_NAME }}") | .newTag' "$FILE_TO_UPDATE")"
+          sed -i "s|$CURRENT_TAG|${{ github.event.release.tag_name }}|g" "$FILE_TO_UPDATE"
+
+
+      - name: Commit and push
+        run: |
+          cd cloud-ops
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Update ${{ env.IMAGE_NAME }} to ${{ github.event.release.tag_name }}"
+          git push origin HEAD
+
+      - name: Open Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          path: cloud-ops
+          commit-message: "Update ${{ env.IMAGE_NAME }} to ${{ github.event.release.tag_name }}"
+          title: "Update ${{ env.IMAGE_NAME }} to ${{ github.event.release.tag_name }}"
+          body: |
+            Auto-generated PR to promote `${{ env.IMAGE_NAME }}` to `${{ github.event.release.tag_name }}`
+            [Compare changes](https://github.com/RocketChat/${{ env.airlock }}/compare/${{ env.CURRENT_TAG }}...${{ github.event.release.tag_name }})
+          branch: ${{ env.BRANCH }}
+          base: master
