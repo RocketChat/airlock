@@ -48,7 +48,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
 )
@@ -210,14 +209,14 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 }
 
-func (r *MongoDBClusterReconciler) findObjectsForSecret(secret client.Object) []reconcile.Request {
+func (r *MongoDBClusterReconciler) findObjectsForSecret(ctx context.Context, secret client.Object) []reconcile.Request {
 	mongodbClusterCR := &airlockv1alpha1.MongoDBClusterList{}
 	listOps := &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector("connectionSecret", secret.GetName()),
 		Namespace:     "",
 	}
 
-	err := r.List(context.TODO(), mongodbClusterCR, listOps)
+	err := r.List(ctx, mongodbClusterCR, listOps)
 	if err != nil {
 		return []reconcile.Request{}
 	}
@@ -270,19 +269,19 @@ func (r *MongoDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&airlockv1alpha1.MongoDBCluster{}).
 		Watches(
-			&source.Kind{Type: &corev1.Secret{}},
+			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findObjectsForSecret),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Watches(
-			&source.Kind{Type: &corev1.Node{}},
-			handler.EnqueueRequestsFromMapFunc(func(node client.Object) []reconcile.Request {
+			&corev1.Node{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, node client.Object) []reconcile.Request {
 				mongodbClusterCR := &airlockv1alpha1.MongoDBClusterList{}
 				listOps := &client.ListOptions{
 					Namespace: "",
 				}
 
-				err := r.List(context.TODO(), mongodbClusterCR, listOps)
+				err := r.List(ctx, mongodbClusterCR, listOps)
 				if err != nil {
 					return []reconcile.Request{}
 				}
