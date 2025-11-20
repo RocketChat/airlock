@@ -75,3 +75,7 @@ func (k Kubectl) DeleteNamespace(name string) error {
 	_, err := k.run([]string{"delete", "namespace", name})
 	return err
 }
+
+func (k Kubectl) Get(args ...string) ([]byte, error) {
+	return k.run(append([]string{"get"}, args...))
+}
