@@ -25,6 +25,9 @@ jobs:
         with:
           go-version: '=1.21.0'
           cache: false
+      - uses: nolar/setup-k3d-k3s@v1
+        with:
+          skip-creation: true
       - name: Build binary
         run: |
           cd $__W_SRC_REL
