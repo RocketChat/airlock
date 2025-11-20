@@ -35,7 +35,7 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	k8sClient *client.Client
+	k8sClient client.Client
 	kubectl   *utils.Kubectl
 	cluster   utils.K3dCluster
 )
@@ -71,9 +71,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	By("get k8s client")
-	k8sClient, err = cluster.K8sClient()
+	k, err := cluster.K8sClient()
 	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
+	Expect(k).NotTo(BeNil())
+	k8sClient = *k
 
 })
 

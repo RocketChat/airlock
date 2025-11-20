@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,6 +71,11 @@ func (k K3dCluster) K8sClient() (*client.Client, error) {
 	}
 
 	err = airlockv1alpha1.AddToScheme(scheme.Scheme)
+	if err != nil {
+		return nil, err
+	}
+
+	err = v1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,12 +11,22 @@ import (
 	//nolint:golint
 	//nolint:revive
 	. "github.com/onsi/ginkgo/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	//nolint:golint
 	//nolint:revive
 	. "github.com/onsi/gomega"
+
+	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"k8s.io/apimachinery/pkg/api/errors"
 )
 
 const namespace = "airlock-system"
+
+const accessRequestName = "test-request"
 
 var _ = Describe("airlock", Ordered, func() {
 	BeforeAll(func() {
@@ -99,6 +110,108 @@ var _ = Describe("airlock", Ordered, func() {
 
 				if string(output) != "'Ready'" {
 					return fmt.Errorf("mongodbcluster not yet in ready state: %s", output)
+				}
+
+				return nil
+			}, time.Minute, time.Second).Should(Succeed())
+		})
+
+		It("should create mongo user as per access request", func() {
+			accessRequestResource := &airlockv1alpha1.MongoDBAccessRequest{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      accessRequestName,
+					Namespace: "mongo",
+				},
+
+				Spec: airlockv1alpha1.MongoDBAccessRequestSpec{
+					Database:    "test",
+					ClusterName: "airlock-test",
+					SecretName:  "test-access-secret",
+				},
+			}
+
+			err := k8sClient.Create(context.Background(), accessRequestResource)
+			Expect(err).ToNot(HaveOccurred())
+
+			// next we need to wait for the user to have been created
+			EventuallyWithOffset(1, func() error {
+				accessRequest := airlockv1alpha1.MongoDBAccessRequest{}
+
+				err = k8sClient.Get(context.Background(), client.ObjectKey{Name: accessRequestName, Namespace: "mongo"}, &accessRequest)
+				if err != nil {
+					return err
+				}
+
+				ready := false
+
+				// TODO: i doubt this is full proof
+				for _, condition := range accessRequest.Status.Conditions {
+					if condition.Type == "Ready" {
+						ready = true
+						break
+					}
+				}
+
+				if !ready {
+					return fmt.Errorf("access request not yet ready")
+				}
+
+				var secret v1.Secret
+
+				err = k8sClient.Get(context.Background(), client.ObjectKey{
+					Name:      accessRequestResource.Spec.SecretName,
+					Namespace: "mongo",
+				}, &secret)
+
+				if err != nil {
+					return err
+				}
+
+				_, hasConnectionString := secret.Data["connectionString"]
+				if !hasConnectionString {
+					return fmt.Errorf("generated secret is missing connectionSecret")
+				}
+
+				_, hasPassword := secret.Data["password"]
+				if !hasPassword {
+					return fmt.Errorf("generated secret is missing password")
+				}
+
+				return nil
+			}, time.Minute, time.Second).Should(Succeed())
+		})
+
+		It("should delete the access secret if the corresponding accessrequest is deleted", func() {
+			accessRequestResource := &airlockv1alpha1.MongoDBAccessRequest{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      accessRequestName,
+					Namespace: "mongo",
+				},
+
+				Spec: airlockv1alpha1.MongoDBAccessRequestSpec{
+					Database:    "test",
+					ClusterName: "airlock-test",
+					SecretName:  "test-access-secret",
+				},
+			}
+
+			err := k8sClient.Delete(context.Background(), accessRequestResource)
+			Expect(err).ToNot(HaveOccurred())
+
+			Eventually(func() error {
+				var secret v1.Secret
+
+				err = k8sClient.Get(context.Background(), client.ObjectKey{
+					Name:      accessRequestResource.Spec.SecretName,
+					Namespace: "mongo",
+				}, &secret)
+
+				if err == nil {
+					return fmt.Errorf("secret hasn't been deleted yet")
+				}
+
+				if !errors.IsNotFound(err) {
+					return fmt.Errorf("failed to try to fetch secret: %v", err)
 				}
 
 				return nil
