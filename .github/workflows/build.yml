@@ -32,8 +32,9 @@ jobs:
         run: |
           cd $__W_SRC_REL
           go mod tidy
-          make docker-build-no-test IMG=controller:latest
           make build
+          make docker-build-no-test IMG=controller:latest
+          make test
       - name: Login to Docker Registry
         uses: docker/login-action@v2
         with:
