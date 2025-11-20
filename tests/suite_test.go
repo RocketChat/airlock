@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package tests
 
 import (
 	"path/filepath"
@@ -23,23 +23,22 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
+	"github.com/RocketChat/airlock/tests/utils"
 	//+kubebuilder:scaffold:imports
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var cfg *rest.Config
-var k8sClient client.Client
-var testEnv *envtest.Environment
+var (
+	k8sClient client.Client
+	kubectl   *utils.Kubectl
+	cluster   utils.K3dCluster
+)
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -50,31 +49,39 @@ func TestAPIs(t *testing.T) {
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
-	By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
-	}
-
 	var err error
-	// cfg is defined in this file globally.
-	cfg, err = testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
 
-	err = airlockv1alpha1.AddToScheme(scheme.Scheme)
+	By("bootstrapping test environment")
+	cluster = utils.NewK3dCluster("airlock-test")
+
+	err = cluster.Start()
 	Expect(err).NotTo(HaveOccurred())
 
-	//+kubebuilder:scaffold:scheme
-
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	By("load controller image")
+	err = cluster.LoadImage("controller:latest")
 	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
+
+	By("get kubectl handler")
+	kubectl, err = cluster.Kubectl()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(kubectl).NotTo(BeNil())
+
+	By("apply CRDs")
+	err = kubectl.Apply(filepath.Join("..", "config", "crd", "bases"))
+	Expect(err).NotTo(HaveOccurred())
+
+	By("get k8s client")
+	k, err := cluster.K8sClient()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(k).NotTo(BeNil())
+	k8sClient = *k
 
 })
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
-	err := testEnv.Stop()
+	err := cluster.Stop()
+	Expect(err).NotTo(HaveOccurred())
+	err = cluster.Delete()
 	Expect(err).NotTo(HaveOccurred())
 })
