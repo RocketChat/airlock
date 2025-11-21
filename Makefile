@@ -48,6 +48,11 @@ endif
 
 # Image URL to use all building/pushing image targets
 IMG ?= $(IMAGE_TAG_BASE):$(VERSION)
+	
+BIMG ?= backup:latest
+
+# Reusable kubectl command with kubeconfig
+KUBECTL_WITH_CONFIG = k3d kubeconfig print ${NAME} > /tmp/${NAME}.kube.config && KUBECONFIG=/tmp/${NAME}.kube.config kubectl
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -257,21 +262,56 @@ catalog-push: ## Push a catalog image.
 
 .PHONY: k3d-cluster
 k3d-cluster:
+ifndef NAME
+	$(error NAME is required. Usage: make k3d-cluster NAME=my-cluster)
+endif
+	test -d tests/k3d/disk || mkdir -pv tests/k3d/disk
 	k3d cluster list -o json | jq '.[].name' -r | grep -q ${NAME} || \
-		k3d cluster create ${NAME} --kubeconfig-update-default=false --kubeconfig-switch-context=false --no-lb --no-rollback --wait -s1 -a1
+		k3d cluster create ${NAME} --kubeconfig-update-default=false --kubeconfig-switch-context=false --no-lb --no-rollback --wait -s1 -a1 --volume $(PWD)/tests/k3d/disk:/disk
+	
+.PHONY: k3d-add-storageclass
+k3d-add-storageclass: k3d-cluster
+	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/k3d/local-path-config.yaml
+	$(KUBECTL_WITH_CONFIG) rollout restart deployment/local-path-provisioner -n kube-system
+	$(KUBECTL_WITH_CONFIG) rollout status deployment/local-path-provisioner -n kube-system
+	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/k3d/manual-storageclass.yaml
 	
 .PHONY: k3d-load-image
-k3d-load-image: docker-build-no-test k3d-cluster
+k3d-load-image: docker-build-no-test k3d-cluster k3d-add-storageclass
 	k3d image load ${IMG} -c ${NAME}
 	
 .PHONY: k3d-deploy
 k3d-deploy: k3d-load-image
-	k3d kubeconfig print ${NAME} > /tmp/${NAME}.kube.config
-	KUBECONFIG=/tmp/${NAME}.kube.config kubectl apply -f config/crd/bases
-	KUBECONFIG=/tmp/${NAME}.kube.config kubectl get namespace airlock-system || KUBECONFIG=/tmp/${NAME}.kube.config kubectl create namespace airlock-system
-	KUBECONFIG=/tmp/${NAME}.kube.config kubectl apply -k config/rbac
-	KUBECONFIG=/tmp/${NAME}.kube.config kubectl apply -f config/manager/manager.yaml
+	$(KUBECTL_WITH_CONFIG) apply -f config/crd/bases
+	$(KUBECTL_WITH_CONFIG) get namespace airlock-system || $(KUBECTL_WITH_CONFIG) create namespace airlock-system
+	$(KUBECTL_WITH_CONFIG) apply -k config/rbac
+	$(KUBECTL_WITH_CONFIG) apply -f config/manager/manager.yaml
 	
 .PHONY: k3d-destroy
 k3d-destroy:
+ifndef NAME
+	$(error NAME is required. Usage: make k3d-cluster NAME=my-cluster)
+endif
 	k3d cluster delete ${NAME}
+
+.PHONY: k3d-deploy-mongo
+k3d-deploy-mongo: k3d-cluster
+	$(KUBECTL_WITH_CONFIG) get namespace mongo || $(KUBECTL_WITH_CONFIG) create namespace mongo
+	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/mongo
+
+.PHONY: k3d-deploy-minio
+k3d-deploy-minio: k3d-cluster k3d-add-storageclass
+	$(KUBECTL_WITH_CONFIG) apply -k "github.com/minio/operator?ref=v6.0.4" 
+	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/minio
+	
+.PHONY: docker-build-backup-image
+docker-build-backup-image:
+	docker build -t ${BIMG} backup-image/
+	
+.PHONY: k3d-load-backup-image
+k3d-load-backup-image: k3d-cluster docker-build-backup-image
+	k3d image import -c ${NAME} ${BIMG}
+	
+.PHONY: k3d-run-backup-pod
+k3d-run-backup-pod: k3d-cluster k3d-load-backup-image
+	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/local-tests/backup-pod.yaml

@@ -13,8 +13,21 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+func getRootDir() (string, error) {
+	output, err := Run("git", "rev-parse", "--show-toplevel")
+	return string(output), err
+}
+
 func Run(cmd ...string) ([]byte, error) {
+	root, err := getRootDir()
+	if err != nil {
+		return nil, err
+	}
+
 	command := exec.Command(cmd[0], cmd[1:]...)
+
+	command.Dir = root
+
 	return runCommand(command)
 }
 
