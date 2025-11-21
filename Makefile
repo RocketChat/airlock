@@ -254,3 +254,24 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+.PHONY: k3d-cluster
+k3d-cluster:
+	k3d cluster list -o json | jq '.[].name' -r | grep -q ${NAME} || \
+		k3d cluster create ${NAME} --kubeconfig-update-default=false --kubeconfig-switch-context=false --no-lb --no-rollback --wait -s1 -a1
+	
+.PHONY: k3d-load-image
+k3d-load-image: docker-build-no-test k3d-cluster
+	k3d image load ${IMG} -c ${NAME}
+	
+.PHONY: k3d-deploy
+k3d-deploy: k3d-load-image
+	k3d kubeconfig print ${NAME} > /tmp/${NAME}.kube.config
+	KUBECONFIG=/tmp/${NAME}.kube.config kubectl apply -f config/crd/bases
+	KUBECONFIG=/tmp/${NAME}.kube.config kubectl get namespace airlock-system || KUBECONFIG=/tmp/${NAME}.kube.config kubectl create namespace airlock-system
+	KUBECONFIG=/tmp/${NAME}.kube.config kubectl apply -k config/rbac
+	KUBECONFIG=/tmp/${NAME}.kube.config kubectl apply -f config/manager/manager.yaml
+	
+.PHONY: k3d-destroy
+k3d-destroy:
+	k3d cluster delete ${NAME}

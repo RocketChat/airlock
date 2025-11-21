@@ -22,6 +22,14 @@ rules:
   - watch
 - apiGroups:
   - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
   - apps
   - networking.k8s.io
   resources:
@@ -63,6 +71,32 @@ rules:
 - apiGroups:
   - airlock.cloud.rocket.chat
   resources:
+  - mongodbbackups
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackups/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackups/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
   - mongodbclusters
   verbs:
   - create
@@ -86,3 +120,15 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

@@ -4,7 +4,8 @@ import (
 	"fmt"
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
-	v1 "k8s.io/api/core/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,7 +20,8 @@ func NewK3dCluster(name string) K3dCluster {
 }
 
 func (k K3dCluster) Start() error {
-	stdout, err := Run("k3d", "cluster", "create", k.name, "--kubeconfig-update-default=false", "--kubeconfig-switch-context=false", "--no-lb", "--no-rollback", "--wait", "-s1", "-a1")
+	// stdout, err := Run("k3d", "cluster", "create", k.name, "--kubeconfig-update-default=false", "--kubeconfig-switch-context=false", "--no-lb", "--no-rollback", "--wait", "-s1", "-a1")
+	stdout, err := Run("make", "k3d-cluster")
 	fmt.Println(string(stdout))
 	return err
 }
@@ -75,7 +77,11 @@ func (k K3dCluster) K8sClient() (*client.Client, error) {
 		return nil, err
 	}
 
-	err = v1.AddToScheme(scheme.Scheme)
+	err = corev1.AddToScheme(scheme.Scheme)
+	if err != nil {
+		return nil, err
+	}
+	err = batchv1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		return nil, err
 	}

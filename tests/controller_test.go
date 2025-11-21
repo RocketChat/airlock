@@ -217,5 +217,51 @@ var _ = Describe("airlock", Ordered, func() {
 				return nil
 			}, time.Minute, time.Second).Should(Succeed())
 		})
+
+		It("should create and manage MongoDBBackup", func() {
+			backupName := "test-backup"
+			backup := &airlockv1alpha1.MongoDBBackup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      backupName,
+					Namespace: "mongo",
+				},
+				Spec: airlockv1alpha1.MongoDBBackupSpec{
+					MongoDBRef: airlockv1alpha1.MongoDBRef{
+						Name:      "mongo",
+						Namespace: "default",
+					},
+					Namespaces: []airlockv1alpha1.MongoDBNamespace{
+						{
+							Database:    "test",
+							Collections: []string{"users"},
+						},
+					},
+					Storage: airlockv1alpha1.MongoDBBackupStorage{
+						Type: "s3",
+						S3: &airlockv1alpha1.MongoDBBackupS3{
+							Endpoint: "s3.amazonaws.com",
+							Bucket:   "test-bucket",
+							Region:   "us-east-1",
+							SecretRef: airlockv1alpha1.S3SecretRef{
+								Name: "s3-credentials",
+								Key:  "credentials",
+							},
+						},
+					},
+				},
+			}
+
+			By("Creating MongoDBBackup")
+			err := k8sClient.Create(context.Background(), backup)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying backup is created")
+			var fetchedBackup airlockv1alpha1.MongoDBBackup
+			err = k8sClient.Get(context.Background(), client.ObjectKey{
+				Name: backupName, Namespace: "mongo",
+			}, &fetchedBackup)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fetchedBackup.Spec.MongoDBRef.Name).To(Equal("mongo"))
+		})
 	})
 })

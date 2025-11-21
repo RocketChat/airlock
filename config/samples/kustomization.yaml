@@ -2,4 +2,5 @@
 resources:
 - airlock_v1alpha1_mongodbcluster.yaml
 - airlock_v1alpha1_mongodbaccessrequest.yaml
+- airlock_v1alpha1_mongodbbackup.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples
