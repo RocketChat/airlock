@@ -74,3 +74,19 @@ make manifests
 
 More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
 
+## Testing
+
+A testing environment can be spun up locally with k3d. 
+
+Run
+```sh
+make k3d-load-mongo-data k3d-deploy-airlock k3d-deploy-minio NAME=airlock IMG=controller:latest
+```
+
+This
+1. deploys a k3d cluster
+2. sets up storage class that uses local path `tests/k3d/disk`
+3. deploys minio
+4. deploys mongo
+5. loads sample data into mongo
+6. deploys airlock operator
