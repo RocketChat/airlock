@@ -52,7 +52,8 @@ IMG ?= $(IMAGE_TAG_BASE):$(VERSION)
 BIMG ?= backup:latest
 
 # Reusable kubectl command with kubeconfig
-KUBECTL_WITH_CONFIG = k3d kubeconfig print ${NAME} > /tmp/${NAME}.kube.config && KUBECONFIG=/tmp/${NAME}.kube.config kubectl
+# KUBECTL_WITH_CONFIG = k3d kubeconfig print ${NAME} > /tmp/${NAME}.kube.config && KUBECONFIG=/tmp/${NAME}.kube.config kubectl
+KUBECTL_WITH_CONFIG = KUBECONFIG=/tmp/${NAME}.kube.config kubectl
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -131,7 +132,7 @@ docker-build: test ## Build docker image with the manager.
 	docker build -t ${IMG} .
 
 .PHONY: docker-build-no-test
-docker-build-no-test:
+docker-build-no-test: build
 	docker build -t ${IMG} .
 
 .PHONY: docker-push
@@ -191,7 +192,7 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v3.8.7
-CONTROLLER_TOOLS_VERSION ?= v0.10.0
+CONTROLLER_TOOLS_VERSION ?= v0.19.0
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize
@@ -268,6 +269,7 @@ endif
 	test -d tests/k3d/disk || mkdir -pv tests/k3d/disk
 	k3d cluster list -o json | jq '.[].name' -r | grep -q ${NAME} || \
 		k3d cluster create ${NAME} --kubeconfig-update-default=false --kubeconfig-switch-context=false --no-lb --no-rollback --wait -s1 -a1 --volume $(PWD)/tests/k3d/disk:/disk
+	k3d kubeconfig print ${NAME} > /tmp/${NAME}.kube.config
 	
 .PHONY: k3d-add-storageclass
 k3d-add-storageclass: k3d-cluster
@@ -281,9 +283,9 @@ k3d-load-image: docker-build-no-test k3d-cluster k3d-add-storageclass
 	k3d image load ${IMG} -c ${NAME}
 	
 .PHONY: k3d-deploy
-k3d-deploy: k3d-load-image
+k3d-deploy-airlock: k3d-load-image
 	$(KUBECTL_WITH_CONFIG) apply -f config/crd/bases
-	$(KUBECTL_WITH_CONFIG) get namespace airlock-system || $(KUBECTL_WITH_CONFIG) create namespace airlock-system
+	$(KUBECTL_WITH_CONFIG) get namespace airlock-system 2>&1 >/dev/null || $(KUBECTL_WITH_CONFIG) create namespace airlock-system
 	$(KUBECTL_WITH_CONFIG) apply -k config/rbac
 	$(KUBECTL_WITH_CONFIG) apply -f config/manager/manager.yaml
 	
@@ -296,7 +298,7 @@ endif
 
 .PHONY: k3d-deploy-mongo
 k3d-deploy-mongo: k3d-cluster
-	$(KUBECTL_WITH_CONFIG) get namespace mongo || $(KUBECTL_WITH_CONFIG) create namespace mongo
+	$(KUBECTL_WITH_CONFIG) get namespace mongo 2>&1 >/dev/null || $(KUBECTL_WITH_CONFIG) create namespace mongo
 	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/mongo
 
 .PHONY: k3d-deploy-minio
@@ -315,3 +317,7 @@ k3d-load-backup-image: k3d-cluster docker-build-backup-image
 .PHONY: k3d-run-backup-pod
 k3d-run-backup-pod: k3d-cluster k3d-load-backup-image
 	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/local-tests/backup-pod.yaml
+	
+.PHONY: k3d-load-mongo-data
+k3d-load-mongo-data: k3d-deploy-mongo
+	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/local-tests/mongo-restore-job.yaml
