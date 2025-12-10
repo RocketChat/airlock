@@ -1,8 +1,6 @@
 package utils
 
 import (
-	"fmt"
-
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -21,24 +19,31 @@ func NewK3dCluster(name string) K3dCluster {
 
 func (k K3dCluster) Start() error {
 	// stdout, err := Run("k3d", "cluster", "create", k.name, "--kubeconfig-update-default=false", "--kubeconfig-switch-context=false", "--no-lb", "--no-rollback", "--wait", "-s1", "-a1")
-	stdout, err := Run("make", "k3d-cluster")
-	fmt.Println(string(stdout))
-	return err
+	return RunStreamOutput("make", "k3d-cluster", MakeVar("NAME", k.name))
 }
 
 func (k K3dCluster) Stop() error {
-	_, err := Run("k3d", "cluster", "stop", k.name)
-	return err
+	return RunStreamOutput("k3d", "cluster", "stop", k.name)
 }
 
 func (k K3dCluster) Delete() error {
-	_, err := Run("k3d", "cluster", "delete", k.name)
-	return err
+	return RunStreamOutput("k3d", "cluster", "delete", k.name)
 }
 
 func (k K3dCluster) LoadImage(image string) error {
-	_, err := Run("k3d", "image", "import", "-c", k.name, image)
-	return err
+	return RunStreamOutput("k3d", "image", "import", "-c", k.name, image)
+}
+
+func (k K3dCluster) DeployMongo() error {
+	return RunStreamOutput("make", "k3d-deploy-mongo", MakeVar("NAME", k.name))
+}
+
+func (k K3dCluster) DeployMinio() error {
+	return RunStreamOutput("make", "k3d-deploy-minio", MakeVar("NAME", k.name))
+}
+
+func (k K3dCluster) DeployAirlock() error {
+	return RunStreamOutput("make", "k3d-deploy-airlock", MakeVar("NAME", k.name), MakeVar("IMG", "controller:latest"))
 }
 
 func (k K3dCluster) Kubeconfig() ([]byte, error) {

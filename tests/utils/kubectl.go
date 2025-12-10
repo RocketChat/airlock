@@ -66,6 +66,16 @@ func (k Kubectl) DescribeDeployment(name string) ([]byte, error) {
 	return k.run([]string{"describe", "deployment", name})
 }
 
+func (k Kubectl) CreateNamespaceIfNotExists(name string) error {
+	_, err := k.Get("namespace", name)
+	if err != nil {
+		_, err := k.run([]string{"create", "namespace", name})
+		return err
+	}
+
+	return nil
+}
+
 func (k Kubectl) CreateNamespace(name string) error {
 	_, err := k.run([]string{"create", "namespace", name})
 	return err

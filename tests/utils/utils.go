@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 
 	//nolint:golint
@@ -14,8 +15,9 @@ import (
 )
 
 func getRootDir() (string, error) {
-	output, err := Run("git", "rev-parse", "--show-toplevel")
-	return string(output), err
+	output, err := exec.Command("git", "rev-parse", "--show-toplevel").CombinedOutput()
+	// remove the \n before returning
+	return string(output[:len(output)-1]), err
 }
 
 func Run(cmd ...string) ([]byte, error) {
@@ -29,6 +31,30 @@ func Run(cmd ...string) ([]byte, error) {
 	command.Dir = root
 
 	return runCommand(command)
+}
+
+func RunStreamOutput(cmd ...string) error {
+	root, err := getRootDir()
+	if err != nil {
+		return err
+	}
+
+	command := exec.Command(cmd[0], cmd[1:]...)
+
+	command.Dir = root
+
+	command.Stdout = os.Stdout
+
+	fmt.Fprintf(GinkgoWriter, "running: %s\n", command.String())
+
+	err = command.Run()
+	if err != nil {
+		return fmt.Errorf("%s failed with error: %v", command, err)
+	}
+
+	fmt.Println("here")
+
+	return nil
 }
 
 func runCommand(command *exec.Cmd) ([]byte, error) {
@@ -53,4 +79,8 @@ func BuildImage(imageName string) {
 	_, err := Run("make", "build-docker-no-test", fmt.Sprintf("IMG=%s", imageName))
 
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+}
+
+func MakeVar(variable, value string) string {
+	return fmt.Sprintf("%s=%s", variable, value)
 }

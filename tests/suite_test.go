@@ -57,9 +57,14 @@ var _ = BeforeSuite(func() {
 	err = cluster.Start()
 	Expect(err).NotTo(HaveOccurred())
 
-	By("load controller image")
-	err = cluster.LoadImage("controller:latest")
-	Expect(err).NotTo(HaveOccurred())
+	By("Deploy mongodb")
+	Expect(cluster.DeployMongo()).NotTo(HaveOccurred())
+
+	By("Deploy minio")
+	Expect(cluster.DeployMinio()).NotTo(HaveOccurred())
+
+	By("Deploy airlock")
+	Expect(cluster.DeployAirlock()).NotTo(HaveOccurred())
 
 	By("get kubectl handler")
 	kubectl, err = cluster.Kubectl()
@@ -76,6 +81,8 @@ var _ = BeforeSuite(func() {
 	Expect(k).NotTo(BeNil())
 	k8sClient = *k
 
+	By("load mongodb sample data for testing")
+	Expect(utils.RunStreamOutput("make", "k3d-load-mongo-data", utils.MakeVar("NAME", "airlock-test")))
 })
 
 var _ = AfterSuite(func() {

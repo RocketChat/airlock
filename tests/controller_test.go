@@ -3,7 +3,6 @@ package tests
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -31,22 +30,10 @@ const accessRequestName = "test-request"
 var _ = Describe("airlock", Ordered, func() {
 	BeforeAll(func() {
 		By("Creating the namespace")
-		Expect(kubectl.CreateNamespace(namespace)).ToNot(HaveOccurred())
+		Expect(kubectl.CreateNamespaceIfNotExists(namespace)).ToNot(HaveOccurred())
 
 		By("applying RBAC")
 		Expect(kubectl.KApply(filepath.Join("..", "config", "rbac"))).ToNot(HaveOccurred())
-
-		By("installing mongo namespace")
-		Expect(kubectl.CreateNamespace("mongo")).ToNot(HaveOccurred())
-
-		mongoImage := os.Getenv("LOAD_MONGO_FROM_LOCAL")
-		if mongoImage != "" {
-			By("loading mongo image from local")
-			Expect(cluster.LoadImage(mongoImage)).ToNot(HaveOccurred())
-		}
-
-		By("installing mongodb pod and service")
-		Expect(kubectl.Apply(filepath.Join("assets", "mongo"))).ToNot(HaveOccurred())
 
 		getPodStatus := func() error {
 			output, err := kubectl.WithNamespace("mongo").GetPods("-l", "app=mongo", "-o", "jsonpath={.items[*].status}")
@@ -71,14 +58,6 @@ var _ = Describe("airlock", Ordered, func() {
 
 	Context("Airlock Controller", func() {
 		It("should run successfully", func() {
-			// FIXME: this is failig -_-
-			// utils.BuildImage("controller:latest")
-
-			By("deploying airlock")
-			err := kubectl.Apply(filepath.Join("..", "config", "manager", "manager.yaml"))
-
-			Expect(err).NotTo(HaveOccurred())
-
 			By("validating pod status phase=running")
 			getPodStatus := func() error {
 				output, err := kubectl.WithNamespace(namespace).GetPods("-l", "app.kubernetes.io/name=airlock", "-o", "jsonpath={.items[*].status}")
