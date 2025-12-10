@@ -104,7 +104,22 @@ func (r *MongoDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// use cluster for name of image to use
 	var accessRequest airlockv1alpha1.MongoDBAccessRequest
 	err = r.Get(ctx, client.ObjectKey{Name: fmt.Sprintf("%s-access", backup.Name), Namespace: backup.Namespace}, &accessRequest)
+	if err != nil {
+		meta.SetStatusCondition(&backup.Status.Conditions, metav1.Condition{
+			Status:             metav1.ConditionFalse,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Type:               "Ready",
+			Reason:             "AccessRequestNotFound",
+			Message:            fmt.Sprintf("Failed to get MongoDBAccessRequest %s-access: %s", backup.Name, err.Error()),
+		})
 
+		backup.Status.Phase = StatusBackupFailed
+
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, &backup)})
+	}
+
+	// TODO: Continue with job creation logic
+	return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager
