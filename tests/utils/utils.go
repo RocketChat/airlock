@@ -52,8 +52,6 @@ func RunStreamOutput(cmd ...string) error {
 		return fmt.Errorf("%s failed with error: %v", command, err)
 	}
 
-	fmt.Println("here")
-
 	return nil
 }
 

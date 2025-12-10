@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
 
 	//nolint:golint
@@ -27,7 +26,7 @@ const namespace = "airlock-system"
 
 const accessRequestName = "test-request"
 
-var _ = Describe("airlock", Ordered, func() {
+var _ = Describe("Airlock Controller", Ordered, func() {
 	BeforeAll(func() {
 		By("Creating the namespace")
 		Expect(kubectl.CreateNamespaceIfNotExists(namespace)).ToNot(HaveOccurred())
@@ -35,20 +34,15 @@ var _ = Describe("airlock", Ordered, func() {
 		By("applying RBAC")
 		Expect(kubectl.KApply(filepath.Join("..", "config", "rbac"))).ToNot(HaveOccurred())
 
-		getPodStatus := func() error {
-			output, err := kubectl.WithNamespace("mongo").GetPods("-l", "app=mongo", "-o", "jsonpath={.items[*].status}")
-			if len(output) > 0 {
-				fmt.Println(string(output))
-			}
-			ExpectWithOffset(2, err).NotTo(HaveOccurred())
-			if !strings.Contains(string(output), "\"phase\":\"Running\"") {
-				return fmt.Errorf("airlock pod in %s status", output)
-			}
+		By("validating mongo is running")
+		Eventually(func() error {
+			return kubectl.WithNamespace("mongo").IsAnyPodReady("mongo", map[string]string{"app": "mongo"})
+		}, time.Minute, time.Second).Should(Succeed())
 
-			return nil
-		}
-
-		EventuallyWithOffset(1, getPodStatus, time.Minute, time.Second).Should(Succeed())
+		By("validating airlock is running")
+		Eventually(func() error {
+			return kubectl.WithNamespace("airlock-system").IsAnyPodReady("airlock", map[string]string{"app.kubernetes.io/name": "airlock"})
+		}, time.Minute, time.Second).Should(Succeed())
 	})
 
 	// AfterAll(func() {
@@ -56,25 +50,7 @@ var _ = Describe("airlock", Ordered, func() {
 	// 	Expect(kubectl.DeleteNamespace(namespace)).ToNot(HaveOccurred())
 	// })
 
-	Context("Airlock Controller", func() {
-		It("should run successfully", func() {
-			By("validating pod status phase=running")
-			getPodStatus := func() error {
-				output, err := kubectl.WithNamespace(namespace).GetPods("-l", "app.kubernetes.io/name=airlock", "-o", "jsonpath={.items[*].status}")
-				if len(output) > 0 {
-					fmt.Println(string(output))
-				}
-				ExpectWithOffset(2, err).NotTo(HaveOccurred())
-				if !strings.Contains(string(output), "\"phase\":\"Running\"") {
-					return fmt.Errorf("airlock pod in %s status", output)
-				}
-
-				return nil
-			}
-
-			EventuallyWithOffset(1, getPodStatus, time.Minute, time.Second).Should(Succeed())
-		})
-
+	Context("MongoDBCluster", func() {
 		It("should mark cluster resource as ready", func() {
 			By("applying mongodb cluster resources")
 			Expect(kubectl.Apply(filepath.Join("assets", "airlock"))).ToNot(HaveOccurred())
@@ -95,106 +71,108 @@ var _ = Describe("airlock", Ordered, func() {
 			}, time.Minute, time.Second).Should(Succeed())
 		})
 
-		It("should create mongo user as per access request", func() {
-			accessRequestResource := &airlockv1alpha1.MongoDBAccessRequest{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      accessRequestName,
-					Namespace: "mongo",
-				},
+		Context("MongoDBAccessRequest", func() {
+			It("should create mongo user as per access request", func() {
+				accessRequestResource := &airlockv1alpha1.MongoDBAccessRequest{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      accessRequestName,
+						Namespace: "mongo",
+					},
 
-				Spec: airlockv1alpha1.MongoDBAccessRequestSpec{
-					Database:    "test",
-					ClusterName: "airlock-test",
-					SecretName:  "test-access-secret",
-				},
-			}
-
-			err := k8sClient.Create(context.Background(), accessRequestResource)
-			Expect(err).ToNot(HaveOccurred())
-
-			// next we need to wait for the user to have been created
-			EventuallyWithOffset(1, func() error {
-				accessRequest := airlockv1alpha1.MongoDBAccessRequest{}
-
-				err = k8sClient.Get(context.Background(), client.ObjectKey{Name: accessRequestName, Namespace: "mongo"}, &accessRequest)
-				if err != nil {
-					return err
+					Spec: airlockv1alpha1.MongoDBAccessRequestSpec{
+						Database:    "test",
+						ClusterName: "airlock-test",
+						SecretName:  "test-access-secret",
+					},
 				}
 
-				ready := false
+				err := k8sClient.Create(context.Background(), accessRequestResource)
+				Expect(err).ToNot(HaveOccurred())
 
-				// TODO: i doubt this is full proof
-				for _, condition := range accessRequest.Status.Conditions {
-					if condition.Type == "Ready" {
-						ready = true
-						break
+				// next we need to wait for the user to have been created
+				EventuallyWithOffset(1, func() error {
+					accessRequest := airlockv1alpha1.MongoDBAccessRequest{}
+
+					err = k8sClient.Get(context.Background(), client.ObjectKey{Name: accessRequestName, Namespace: "mongo"}, &accessRequest)
+					if err != nil {
+						return err
 					}
+
+					ready := false
+
+					// TODO: i doubt this is full proof
+					for _, condition := range accessRequest.Status.Conditions {
+						if condition.Type == "Ready" {
+							ready = true
+							break
+						}
+					}
+
+					if !ready {
+						return fmt.Errorf("access request not yet ready")
+					}
+
+					var secret v1.Secret
+
+					err = k8sClient.Get(context.Background(), client.ObjectKey{
+						Name:      accessRequestResource.Spec.SecretName,
+						Namespace: "mongo",
+					}, &secret)
+
+					if err != nil {
+						return err
+					}
+
+					_, hasConnectionString := secret.Data["connectionString"]
+					if !hasConnectionString {
+						return fmt.Errorf("generated secret is missing connectionSecret")
+					}
+
+					_, hasPassword := secret.Data["password"]
+					if !hasPassword {
+						return fmt.Errorf("generated secret is missing password")
+					}
+
+					return nil
+				}, time.Minute, time.Second).Should(Succeed())
+			})
+
+			It("should delete the access secret if the corresponding accessrequest is deleted", func() {
+				accessRequestResource := &airlockv1alpha1.MongoDBAccessRequest{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      accessRequestName,
+						Namespace: "mongo",
+					},
+
+					Spec: airlockv1alpha1.MongoDBAccessRequestSpec{
+						Database:    "test",
+						ClusterName: "airlock-test",
+						SecretName:  "test-access-secret",
+					},
 				}
 
-				if !ready {
-					return fmt.Errorf("access request not yet ready")
-				}
+				err := k8sClient.Delete(context.Background(), accessRequestResource)
+				Expect(err).ToNot(HaveOccurred())
 
-				var secret v1.Secret
+				Eventually(func() error {
+					var secret v1.Secret
 
-				err = k8sClient.Get(context.Background(), client.ObjectKey{
-					Name:      accessRequestResource.Spec.SecretName,
-					Namespace: "mongo",
-				}, &secret)
+					err = k8sClient.Get(context.Background(), client.ObjectKey{
+						Name:      accessRequestResource.Spec.SecretName,
+						Namespace: "mongo",
+					}, &secret)
 
-				if err != nil {
-					return err
-				}
+					if err == nil {
+						return fmt.Errorf("secret hasn't been deleted yet")
+					}
 
-				_, hasConnectionString := secret.Data["connectionString"]
-				if !hasConnectionString {
-					return fmt.Errorf("generated secret is missing connectionSecret")
-				}
+					if !errors.IsNotFound(err) {
+						return fmt.Errorf("failed to try to fetch secret: %v", err)
+					}
 
-				_, hasPassword := secret.Data["password"]
-				if !hasPassword {
-					return fmt.Errorf("generated secret is missing password")
-				}
-
-				return nil
-			}, time.Minute, time.Second).Should(Succeed())
-		})
-
-		It("should delete the access secret if the corresponding accessrequest is deleted", func() {
-			accessRequestResource := &airlockv1alpha1.MongoDBAccessRequest{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      accessRequestName,
-					Namespace: "mongo",
-				},
-
-				Spec: airlockv1alpha1.MongoDBAccessRequestSpec{
-					Database:    "test",
-					ClusterName: "airlock-test",
-					SecretName:  "test-access-secret",
-				},
-			}
-
-			err := k8sClient.Delete(context.Background(), accessRequestResource)
-			Expect(err).ToNot(HaveOccurred())
-
-			Eventually(func() error {
-				var secret v1.Secret
-
-				err = k8sClient.Get(context.Background(), client.ObjectKey{
-					Name:      accessRequestResource.Spec.SecretName,
-					Namespace: "mongo",
-				}, &secret)
-
-				if err == nil {
-					return fmt.Errorf("secret hasn't been deleted yet")
-				}
-
-				if !errors.IsNotFound(err) {
-					return fmt.Errorf("failed to try to fetch secret: %v", err)
-				}
-
-				return nil
-			}, time.Minute, time.Second).Should(Succeed())
+					return nil
+				}, time.Minute, time.Second).Should(Succeed())
+			})
 		})
 
 		It("should create and manage MongoDBBackup", func() {
