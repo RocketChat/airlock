@@ -22,6 +22,16 @@ rules:
   - watch
 - apiGroups:
   - ""
+  resourceNames:
+  - '*'
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
   - apps
   - networking.k8s.io
   resources:

@@ -53,6 +53,8 @@ type MongoDBClusterSpec struct {
 	AtlasNodeIPAccessStrategy string `json:"atlasNodeIpAccessStrategy,omitempty"`
 
 	AtlasScheduledAutoscaling *AtlasScheduledAutoscaling `json:"atlasScheduledAutoscaling,omitempty"`
+
+	BackupRestoreImage string `json:"backupRestoreImage,omitempty"`
 }
 
 type AtlasScheduledAutoscaling struct {

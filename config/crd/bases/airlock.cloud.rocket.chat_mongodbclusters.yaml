@@ -98,6 +98,8 @@ spec:
                       scaled up.
                     type: string
                 type: object
+              backupRestoreImage:
+                type: string
               connectionSecret:
                 description: Secret in which Airlock will look for a ConnectionString
                   or Atlas credentials, that will be used to connect to the cluster.

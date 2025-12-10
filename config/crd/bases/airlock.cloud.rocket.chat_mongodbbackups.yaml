@@ -38,7 +38,7 @@ spec:
           spec:
             description: MongoDBBackupSpec defines the desired state of MongoDBBackup
             properties:
-              mongodbRef:
+              clusterRef:
                 properties:
                   name:
                     type: string
@@ -61,42 +61,33 @@ spec:
                   - database
                   type: object
                 type: array
-              storage:
+              s3:
+                description: |-
+                  MongoDBBackupS3 defines S3 storage configuration
+                  Secret should contain keys: endpoint, bucket, region, accessKeyId, secretAccessKey
                 properties:
-                  s3:
-                    properties:
-                      bucket:
-                        type: string
-                      endpoint:
-                        type: string
-                      prefix:
-                        type: string
-                      region:
-                        type: string
-                      secretRef:
-                        properties:
-                          key:
-                            type: string
-                          name:
-                            type: string
-                        required:
-                        - key
-                        - name
-                        type: object
-                    required:
-                    - bucket
-                    - endpoint
-                    - region
-                    - secretRef
-                    type: object
-                  type:
+                  prefix:
+                    description: Prefix for backup objects in S3 bucket
                     type: string
+                  secretRef:
+                    description: |-
+                      SecretRef references a secret containing S3 configuration
+                      Expected keys: endpoint, bucket, region, accessKeyId, secretAccessKey
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    - namespace
+                    type: object
                 required:
-                - type
+                - secretRef
                 type: object
             required:
-            - mongodbRef
-            - storage
+            - clusterRef
+            - s3
             type: object
           status:
             description: MongoDBBackupStatus defines the observed state of MongoDBBackup
