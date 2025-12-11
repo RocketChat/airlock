@@ -38,7 +38,7 @@ spec:
           spec:
             description: MongoDBBackupSpec defines the desired state of MongoDBBackup
             properties:
-              mongodbRef:
+              backupBucketSecretRef:
                 properties:
                   name:
                     type: string
@@ -48,55 +48,24 @@ spec:
                 - name
                 - namespace
                 type: object
-              namespaces:
+              cluster:
+                type: string
+              database:
+                type: string
+              excludedCollections:
                 items:
-                  properties:
-                    collections:
-                      items:
-                        type: string
-                      type: array
-                    database:
-                      type: string
-                  required:
-                  - database
-                  type: object
+                  type: string
                 type: array
-              storage:
-                properties:
-                  s3:
-                    properties:
-                      bucket:
-                        type: string
-                      endpoint:
-                        type: string
-                      prefix:
-                        type: string
-                      region:
-                        type: string
-                      secretRef:
-                        properties:
-                          key:
-                            type: string
-                          name:
-                            type: string
-                        required:
-                        - key
-                        - name
-                        type: object
-                    required:
-                    - bucket
-                    - endpoint
-                    - region
-                    - secretRef
-                    type: object
-                  type:
-                    type: string
-                required:
-                - type
-                type: object
+              includedCollections:
+                items:
+                  type: string
+                type: array
             required:
-            - mongodbRef
-            - storage
+            - backupBucketSecretRef
+            - cluster
+            - database
+            - excludedCollections
+            - includedCollections
             type: object
           status:
             description: MongoDBBackupStatus defines the observed state of MongoDBBackup

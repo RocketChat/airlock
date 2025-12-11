@@ -117,7 +117,7 @@ test: manifests generate fmt vet ## Run tests.
 ##@ Build
 
 .PHONY: build
-build: generate fmt vet ## Build manager binary.
+build: generate manifests fmt vet ## Build manager binary.
 	CGO_ENABLED=0 GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) go build -o bin/manager main.go
 
 .PHONY: run
@@ -288,6 +288,7 @@ k3d-deploy-airlock: k3d-load-image
 	$(KUBECTL_WITH_CONFIG) get namespace airlock-system 2>&1 >/dev/null || $(KUBECTL_WITH_CONFIG) create namespace airlock-system
 	$(KUBECTL_WITH_CONFIG) apply -k config/rbac
 	$(KUBECTL_WITH_CONFIG) apply -f config/manager/manager.yaml
+	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/airlock
 	
 .PHONY: k3d-destroy
 k3d-destroy:

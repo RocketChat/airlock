@@ -8,38 +8,25 @@ import (
 // +kubebuilder:object:generate=true
 // +k8s:deepcopy-gen=true
 type MongoDBBackupSpec struct {
-	MongoDBRef MongoDBRef           `json:"mongodbRef"`
-	Namespaces []MongoDBNamespace   `json:"namespaces,omitempty"`
-	Storage    MongoDBBackupStorage `json:"storage"`
+	Cluster               string                       `json:"cluster"`
+	Database              string                       `json:"database"`
+	ExcludedCollections   []string                     `json:"excludedCollections"`
+	IncludedCollections   []string                     `json:"includedCollections"`
+	BackupBucketSecretRef MongoDbBackupBucketSecretRef `json:"backupBucketSecretRef"`
 }
 
-type MongoDBRef struct {
+type MongoDbBackupBucketSecretRef struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 }
 
-type MongoDBNamespace struct {
-	Database    string   `json:"database"`
-	Collections []string `json:"collections,omitempty"`
-}
-
-type MongoDBBackupStorage struct {
-	Type string           `json:"type"`
-	S3   *MongoDBBackupS3 `json:"s3,omitempty"`
-}
-
-type MongoDBBackupS3 struct {
-	Endpoint  string      `json:"endpoint"`
-	Bucket    string      `json:"bucket"`
-	Region    string      `json:"region"`
-	SecretRef S3SecretRef `json:"secretRef"`
-	Prefix    string      `json:"prefix,omitempty"`
-}
-
-type S3SecretRef struct {
-	Name string `json:"name"`
-	Key  string `json:"key"`
-}
+// type MongoDBBackupS3 struct {
+// 	Endpoint  string      `json:"endpoint"`
+// 	Bucket    string      `json:"bucket"`
+// 	Region    string      `json:"region"`
+// 	SecretRef S3SecretRef `json:"secretRef"`
+// 	Prefix    string      `json:"prefix,omitempty"`
+// }
 
 // MongoDBBackupStatus defines the observed state of MongoDBBackup
 // +kubebuilder:object:generate=true

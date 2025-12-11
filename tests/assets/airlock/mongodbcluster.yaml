@@ -16,4 +16,5 @@ spec:
   hostTemplate: "mongo.mongo.svc.cluster.local"
   optionsTemplate: "?directConnection=true"
   prefixTemplate: mongodb
+  backupImage: backup:latest
 ---
