@@ -84,7 +84,7 @@ func reconcileMongoDbAccessRequest(ctx context.Context, cl client.Client, backup
 
 	accessRequest.Namespace = backupCr.Namespace
 
-	_, err := reconciler.CreateOrUpdate(ctx, cl, backupCr, &accessRequest, func() error {
+	_, err := reconciler.CreateOrPatch(ctx, cl, backupCr, &accessRequest, func() error {
 		accessRequest.Spec.ClusterName = backupCr.Spec.Cluster
 		accessRequest.Spec.Database = backupCr.Spec.Database
 		accessRequest.Spec.UserName = backupCr.Name + "-user"
