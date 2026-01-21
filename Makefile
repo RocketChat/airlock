@@ -276,6 +276,7 @@ k3d-add-storageclass: k3d-cluster
 	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/k3d/local-path-config.yaml
 	$(KUBECTL_WITH_CONFIG) rollout restart deployment/local-path-provisioner -n kube-system
 	$(KUBECTL_WITH_CONFIG) rollout status deployment/local-path-provisioner -n kube-system
+	$(KUBECTL_WITH_CONFIG) annotate storageclass local-path storageclass.kubernetes.io/is-default-class- || true
 	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/k3d/manual-storageclass.yaml
 	
 .PHONY: k3d-load-image
@@ -289,6 +290,7 @@ k3d-deploy-airlock: k3d-load-image
 	$(KUBECTL_WITH_CONFIG) apply -k config/rbac
 	$(KUBECTL_WITH_CONFIG) apply -f config/manager/manager.yaml
 	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/airlock
+	$(KUBECTL_WITH_CONFIG) set env deployment/controller-manager DEV_MODE=true -n airlock-system
 	
 .PHONY: k3d-destroy
 k3d-destroy:
@@ -299,13 +301,12 @@ endif
 
 .PHONY: k3d-deploy-mongo
 k3d-deploy-mongo: k3d-cluster
-	$(KUBECTL_WITH_CONFIG) get namespace mongo 2>&1 >/dev/null || $(KUBECTL_WITH_CONFIG) create namespace mongo
-	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/mongo
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/mongo
 
 .PHONY: k3d-deploy-minio
 k3d-deploy-minio: k3d-cluster k3d-add-storageclass
 	$(KUBECTL_WITH_CONFIG) apply -k "github.com/minio/operator?ref=v6.0.4" 
-	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/minio
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/minio
 	
 .PHONY: docker-build-backup-image
 docker-build-backup-image:
@@ -317,8 +318,35 @@ k3d-load-backup-image: k3d-cluster docker-build-backup-image
 	
 .PHONY: k3d-run-backup-pod
 k3d-run-backup-pod: k3d-cluster k3d-load-backup-image
-	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/local-tests/backup-pod.yaml
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/backup-pod.yaml
 	
 .PHONY: k3d-load-mongo-data
 k3d-load-mongo-data: k3d-deploy-mongo
-	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/local-tests/mongo-restore-job.yaml
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/mongo-restore-job.yaml
+	
+# subject to change as more matures
+.PHONY: k3d-setup-all
+k3d-setup-all: k3d-load-mongo-data k3d-load-backup-image k3d-deploy-airlock k3d-deploy-minio
+
+.PHONY: k3d-retsart-airlock
+k3d-restart-airlock:
+ifndef NAME
+	$(error NAME is required. Usage: make k3d-restart-airlock NAME=my-cluster)
+endif
+	$(KUBECTL_WITH_CONFIG) rollout restart deployment controller-manager -n airlock-system
+	
+# Example: make k3d-kubectl NAME=airlock-test get pods \\-A
+k3d-kubectl:
+ifndef NAME
+	$(error NAME is required. Usage: make k3d-kubectl NAME=my-cluster [kubectl args...])
+endif
+	$(KUBECTL_WITH_CONFIG) $(wordlist 2, $(words $(MAKECMDGOALS)), $(MAKECMDGOALS))
+
+# Support for passing commands after the target name
+%::
+	@:
+
+.PHONY: k3d-add-backup-store
+k3d-add-backup-store: k3d-cluster
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/mongodbbucketstoresecret.yaml
+	$(KUBECTL_WITH_CONFIG) apply -f ./config/samples/airlock_v1alpha1_mongodbbackupstore.yaml

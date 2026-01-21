@@ -10,6 +10,7 @@ spec:
   database: "sample_training"
   excludedCollections: []
   includedCollections: []
-  backupBucketSecretRef:
-    name: "s3-backup-secret"
+  prefix: haha
+  backupStoreRef:
+    name: mongodbbackupstore-sample
     namespace: "mongo"

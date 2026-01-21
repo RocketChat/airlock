@@ -19,7 +19,7 @@ func NewK3dCluster(name string) K3dCluster {
 
 func (k K3dCluster) Start() error {
 	// stdout, err := Run("k3d", "cluster", "create", k.name, "--kubeconfig-update-default=false", "--kubeconfig-switch-context=false", "--no-lb", "--no-rollback", "--wait", "-s1", "-a1")
-	return RunStreamOutput("make", "k3d-cluster", MakeVar("NAME", k.name))
+	return Make("k3d-cluster", MakeVar("NAME", k.name))
 }
 
 func (k K3dCluster) Stop() error {
@@ -35,15 +35,27 @@ func (k K3dCluster) LoadImage(image string) error {
 }
 
 func (k K3dCluster) DeployMongo() error {
-	return RunStreamOutput("make", "k3d-deploy-mongo", MakeVar("NAME", k.name))
+	return Make("k3d-deploy-mongo", MakeVar("NAME", k.name))
 }
 
 func (k K3dCluster) DeployMinio() error {
-	return RunStreamOutput("make", "k3d-deploy-minio", MakeVar("NAME", k.name))
+	return Make("k3d-deploy-minio", MakeVar("NAME", k.name))
 }
 
 func (k K3dCluster) DeployAirlock() error {
-	return RunStreamOutput("make", "k3d-deploy-airlock", MakeVar("NAME", k.name), MakeVar("IMG", "controller:latest"))
+	return Make("k3d-deploy-airlock", MakeVar("NAME", k.name), MakeVar("IMG", "controller:latest"))
+}
+
+func (k K3dCluster) ApplyMongodbBackupStore() error {
+	return Make("k3d-add-backup-store", MakeVar("NAME", k.name))
+}
+
+func (k K3dCluster) LoadSampleDataToMongo() error {
+	return Make("k3d-load-mongo-data", MakeVar("NAME", k.name))
+}
+
+func (k K3dCluster) LoadBackupImage() error {
+	return Make("k3d-load-backup-image", MakeVar("NAME", k.name))
 }
 
 func (k K3dCluster) Kubeconfig() ([]byte, error) {

@@ -19,8 +19,10 @@ package tests
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2/types"
 	. "github.com/onsi/gomega"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,6 +72,8 @@ var _ = BeforeSuite(func() {
 
 	kubectl.SetK8sClient(k8sClient)
 
+	time.Sleep(30 * time.Second)
+
 	By("Deploy mongodb")
 	Expect(cluster.DeployMongo()).NotTo(HaveOccurred())
 
@@ -87,7 +91,16 @@ var _ = BeforeSuite(func() {
 	Expect(utils.RunStreamOutput("make", "k3d-load-mongo-data", utils.MakeVar("NAME", "airlock-test")))
 })
 
-var _ = AfterSuite(func() {
+var _ = ReportAfterSuite("Teardown cluster", func(report types.Report) {
+	// Check if any spec in the suite failed
+	failedCount := report.SpecReports.CountWithState(types.SpecStateFailed)
+
+	if failedCount > 0 {
+		By("Skipping teardown of test cluster since one or more specs failed")
+		By("Use 'make k3d-kubectl NAME=airlock-test' to debug the cluster")
+		return
+	}
+
 	By("tearing down the test environment")
 	err := cluster.Stop()
 	Expect(err).NotTo(HaveOccurred())

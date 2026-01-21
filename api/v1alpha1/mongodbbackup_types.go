@@ -8,16 +8,17 @@ import (
 // +kubebuilder:object:generate=true
 // +k8s:deepcopy-gen=true
 type MongoDBBackupSpec struct {
-	Cluster               string                       `json:"cluster"`
-	Database              string                       `json:"database"`
-	ExcludedCollections   []string                     `json:"excludedCollections"`
-	IncludedCollections   []string                     `json:"includedCollections"`
-	BackupBucketSecretRef MongoDbBackupBucketSecretRef `json:"backupBucketSecretRef"`
+	Cluster             string                `json:"cluster"`
+	Database            string                `json:"database"`
+	ExcludedCollections []string              `json:"excludedCollections,omitempty"`
+	IncludedCollections []string              `json:"includedCollections,omitempty"`
+	BackupStoreRef      MongoDBBackupStoreRef `json:"backupStoreRef"`
+	Prefix              string                `json:"prefix,omitempty"`
 }
 
-type MongoDbBackupBucketSecretRef struct {
+type MongoDBBackupStoreRef struct {
 	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
+	Namespace string `json:"namespace,omitempty"`
 }
 
 // type MongoDBBackupS3 struct {
@@ -42,6 +43,7 @@ type MongoDBBackupStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBBackup struct {
 	metav1.TypeMeta   `json:",inline"`

@@ -5,27 +5,29 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
-  name: mongodbclusters.airlock.cloud.rocket.chat
+  name: mongodbbackupschedules.airlock.cloud.rocket.chat
 spec:
   group: airlock.cloud.rocket.chat
   names:
-    kind: MongoDBCluster
-    listKind: MongoDBClusterList
-    plural: mongodbclusters
-    singular: mongodbcluster
-  scope: Cluster
+    kind: MongoDBBackupSchedule
+    listKind: MongoDBBackupScheduleList
+    plural: mongodbbackupschedules
+    singular: mongodbbackupschedule
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=="Ready")].status
-      name: Ready
+    - jsonPath: .spec.schedule
+      name: Schedule
       type: string
-    - jsonPath: .metadata.creationTimestamp
-      name: Age
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.lastBackupTime
+      name: Last Backup
       type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: MongoDBCluster is the Schema for the mongodbclusters API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -40,103 +42,79 @@ spec:
           metadata:
             type: object
           spec:
+            description: MongoDBBackupScheduleSpec defines the desired state of MongoDBBackupSchedule
             properties:
-              atlasNodeIpAccessStrategy:
-                description: If this is set, along with useAtlasApi, all the kubernetes
-                  nodes on the cluster will be added to the Atlas firewall. The only
-                  available value right now is "rancher-annotation", which uses the
-                  rke.cattle.io/external-ip annotation.
-                type: string
-              atlasScheduledAutoscaling:
+              backupSpec:
+                description: BackupSpec defines the template for creating MongoDBBackup
+                  resources
                 properties:
-                  enabled:
-                    default: false
-                    description: If this is set, the cluster will be enabled for scheduled
-                      autoscaling. The way it works is that the cluster will be scaled
-                      up to the high tier at the specified time, and scaled down to
-                      the lowTier at the specified time.
-                    type: boolean
-                  highTier:
-                    default: M50
-                    description: The maximum tier the cluster can scale up to.
-                    enum:
-                    - M10
-                    - M20
-                    - M30
-                    - M40
-                    - M50
-                    - M60
-                    - M80
-                    - M140
-                    - M200
+                  backupStoreRef:
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  cluster:
                     type: string
-                  lowTier:
-                    default: M20
-                    description: The minimum tier the cluster can scale down to.
-                    enum:
-                    - M10
-                    - M20
-                    - M30
-                    - M40
-                    - M50
-                    - M60
-                    - M80
-                    - M140
-                    - M200
+                  database:
                     type: string
-                  scaleDownCronExpression:
-                    default: 0 20 * * 1-5
-                    description: Cron expression for the time the cluster should be
-                      scaled down.
+                  excludedCollections:
+                    items:
+                      type: string
+                    type: array
+                  includedCollections:
+                    items:
+                      type: string
+                    type: array
+                  prefix:
                     type: string
-                  scaleUpCronExpression:
-                    default: 0 6 * * 1-5
-                    description: Cron expression for the time the cluster should be
-                      scaled up.
-                    type: string
+                required:
+                - backupStoreRef
+                - cluster
+                - database
                 type: object
-              backupImage:
+              failedJobsHistoryLimit:
+                default: 1
+                description: FailedJobsHistoryLimit is the number of failed backup
+                  jobs to keep
+                format: int32
+                minimum: 0
+                type: integer
+              schedule:
+                description: Schedule is a cron expression defining when backups should
+                  run
                 type: string
-              connectionSecret:
-                description: Secret in which Airlock will look for a ConnectionString
-                  or Atlas credentials, that will be used to connect to the cluster.
-                  It should have enough privileges to manage users and access. This
-                  is not gonna be used by the created users.
-                type: string
-              connectionSecretNamespace:
-                default: airlock-system
-                type: string
-              hostTemplate:
-                description: The host with port that clients will receive when requesting
-                  credentials.
-                type: string
-              optionsTemplate:
-                default: ?replicaSet=rs01
-                description: Extra connection string parameters that will be added
-                  to the connection string.
-                type: string
-              prefixTemplate:
-                default: mongodb
-                description: The prefix used when building the connection string.
-                  Defaults to "mongodb"
-                type: string
-              useAtlasApi:
-                description: If this is set, Atlas API will be used instead of the
-                  regular mongo auth path.
+              successfulJobsHistoryLimit:
+                default: 3
+                description: SuccessfulJobsHistoryLimit is the number of successful
+                  backup jobs to keep
+                format: int32
+                minimum: 0
+                type: integer
+              suspend:
+                default: false
+                description: Suspend suspends the schedule if true
                 type: boolean
-              userNamePrefix:
-                description: Append this prefix to all default/generated usernames
-                  for this cluster. Will be overridden if "username" is specified.
-                type: string
             required:
-            - backupImage
-            - connectionSecret
-            - hostTemplate
+            - backupSpec
+            - schedule
             type: object
           status:
-            description: MongoDBClusterStatus defines the observed state of MongoDBCluster
+            description: MongoDBBackupScheduleStatus defines the observed state of
+              MongoDBBackupSchedule
             properties:
+              activeBackups:
+                description: ActiveBackups is a list of active backup names created
+                  by this schedule
+                items:
+                  type: string
+                type: array
               conditions:
+                description: Conditions represent the latest available observations
+                  of the schedule's state
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource. --- This struct is intended for direct
@@ -204,8 +182,27 @@ spec:
                   - type
                   type: object
                 type: array
-            required:
-            - conditions
+              lastBackupName:
+                description: LastBackupName is the name of the last created backup
+                type: string
+              lastBackupTime:
+                description: LastBackupTime is the time of the last successful backup
+                format: date-time
+                type: string
+              lastFailureMessage:
+                description: LastFailureMessage contains the error message from the
+                  last failed backup
+                type: string
+              lastFailureTime:
+                description: LastFailureTime is the time of the last failed backup
+                format: date-time
+                type: string
+              phase:
+                description: Phase indicates the overall status of the schedule
+                enum:
+                - Succeeding
+                - Failing
+                type: string
             type: object
         type: object
     served: true

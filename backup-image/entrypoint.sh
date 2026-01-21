@@ -81,7 +81,7 @@ dump() {
 	warn "executing \"$cmd > $backup_file\""
 
 	$cmd >"$backup_file" || error "failed to back up database"
-	
+
 	[ -f "$backup_file" ] || error "failed to back up db, file not found"
 
 	info "backup finished"
@@ -113,12 +113,27 @@ s3push() {
 
 	debug "pretty manifest: $(echo "$manifest" | jq)"
 
+	echo "$manifest" >manifest.json
+
+	local destination="s3://$BUCKET"
+	if [ "$PREFIX" != "" ]; then destination="$destination/$PREFIX"; fi
+
+	__aws() {
+		if [ "$NO_VERIFY_SSL" = "true" ]; then
+			aws --no-verify-ssl "$@"
+		else
+			aws "$@"
+		fi
+	}
+
+	__aws s3 cp manifest.json "$destination"
+
 	# TODO: push this manifest first
 
 	# TODO: Upload each part to S3
 	for part in "${split_prefix}"*; do
 		debug "part: $part"
-		# aws s3 cp "$part" "s3://$S3_BUCKET/$S3_PREFIX/"
+		__aws s3 cp "$part" "$destination"
 	done
 }
 
@@ -127,7 +142,7 @@ hash() {
 }
 
 hash_json() {
-	printf '{"hash":{"sha256":"%s"},"filename":"%s"}' "$(hash "$1")" "$1"
+	printf '{"hash":{"sha256":"%s"},"filename":"%s"}' "$(hash "$1")" "$(basename "$1")"
 }
 
 generate_manifest() {
@@ -150,5 +165,16 @@ generate_manifest() {
 	echo "$manifest"
 }
 
-dump
-s3push
+main() {
+	case "$1" in
+	"backup")
+		dump
+		s3push
+		;;
+	"restore")
+		error "not implemented"
+		;;
+	esac
+}
+
+main "$@"

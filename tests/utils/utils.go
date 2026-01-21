@@ -14,14 +14,14 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func getRootDir() (string, error) {
+func GetRootDir() (string, error) {
 	output, err := exec.Command("git", "rev-parse", "--show-toplevel").CombinedOutput()
 	// remove the \n before returning
 	return string(output[:len(output)-1]), err
 }
 
 func Run(cmd ...string) ([]byte, error) {
-	root, err := getRootDir()
+	root, err := GetRootDir()
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ func Run(cmd ...string) ([]byte, error) {
 }
 
 func RunStreamOutput(cmd ...string) error {
-	root, err := getRootDir()
+	root, err := GetRootDir()
 	if err != nil {
 		return err
 	}
@@ -45,14 +45,28 @@ func RunStreamOutput(cmd ...string) error {
 
 	command.Stdout = os.Stdout
 
+	command.Stderr = os.Stderr
+
 	fmt.Fprintf(GinkgoWriter, "running: %s\n", command.String())
 
 	err = command.Run()
-	if err != nil {
-		return fmt.Errorf("%s failed with error: %v", command, err)
+	exitCode := command.ProcessState.ExitCode()
+	if exitCode != 0 || err != nil {
+		return fmt.Errorf("%s failed with error: %v, err: %v", command, exitCode, err.Error())
 	}
 
 	return nil
+}
+
+func Make(target string, vars ...string) error {
+	root, err := GetRootDir()
+	if err != nil {
+		return err
+	}
+
+	cmd := append([]string{"make", "-w", "-C", root, target}, vars...)
+
+	return RunStreamOutput(cmd...)
 }
 
 func runCommand(command *exec.Cmd) ([]byte, error) {

@@ -5,6 +5,7 @@ resources:
 - bases/airlock.cloud.rocket.chat_mongodbclusters.yaml
 - bases/airlock.cloud.rocket.chat_mongodbaccessrequests.yaml
 - bases/airlock.cloud.rocket.chat_mongodbbackups.yaml
+- bases/airlock.cloud.rocket.chat_mongodbbackupstores.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge: []

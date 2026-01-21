@@ -5,27 +5,23 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
-  name: mongodbclusters.airlock.cloud.rocket.chat
+  name: mongodbbackupstores.airlock.cloud.rocket.chat
 spec:
   group: airlock.cloud.rocket.chat
   names:
-    kind: MongoDBCluster
-    listKind: MongoDBClusterList
-    plural: mongodbclusters
-    singular: mongodbcluster
-  scope: Cluster
+    kind: MongoDBBackupStore
+    listKind: MongoDBBackupStoreList
+    plural: mongodbbackupstores
+    singular: mongodbbackupstore
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=="Ready")].status
-      name: Ready
+    - jsonPath: .status.phase
+      name: Phase
       type: string
-    - jsonPath: .metadata.creationTimestamp
-      name: Age
-      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: MongoDBCluster is the Schema for the mongodbclusters API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -40,101 +36,59 @@ spec:
           metadata:
             type: object
           spec:
+            description: MongoDBBackupStoreSpec defines the desired state of MongoDBBackupStore
             properties:
-              atlasNodeIpAccessStrategy:
-                description: If this is set, along with useAtlasApi, all the kubernetes
-                  nodes on the cluster will be added to the Atlas firewall. The only
-                  available value right now is "rancher-annotation", which uses the
-                  rke.cattle.io/external-ip annotation.
-                type: string
-              atlasScheduledAutoscaling:
+              s3:
                 properties:
-                  enabled:
-                    default: false
-                    description: If this is set, the cluster will be enabled for scheduled
-                      autoscaling. The way it works is that the cluster will be scaled
-                      up to the high tier at the specified time, and scaled down to
-                      the lowTier at the specified time.
-                    type: boolean
-                  highTier:
-                    default: M50
-                    description: The maximum tier the cluster can scale up to.
-                    enum:
-                    - M10
-                    - M20
-                    - M30
-                    - M40
-                    - M50
-                    - M60
-                    - M80
-                    - M140
-                    - M200
+                  bucket:
                     type: string
-                  lowTier:
-                    default: M20
-                    description: The minimum tier the cluster can scale down to.
-                    enum:
-                    - M10
-                    - M20
-                    - M30
-                    - M40
-                    - M50
-                    - M60
-                    - M80
-                    - M140
-                    - M200
+                  endpoint:
                     type: string
-                  scaleDownCronExpression:
-                    default: 0 20 * * 1-5
-                    description: Cron expression for the time the cluster should be
-                      scaled down.
+                  region:
                     type: string
-                  scaleUpCronExpression:
-                    default: 0 6 * * 1-5
-                    description: Cron expression for the time the cluster should be
-                      scaled up.
-                    type: string
+                  secretRef:
+                    properties:
+                      mappings:
+                        properties:
+                          accessKeyId:
+                            properties:
+                              key:
+                                type: string
+                            required:
+                            - key
+                            type: object
+                          secretAccessKey:
+                            properties:
+                              key:
+                                type: string
+                            required:
+                            - key
+                            type: object
+                        required:
+                        - accessKeyId
+                        - secretAccessKey
+                        type: object
+                      name:
+                        type: string
+                    required:
+                    - mappings
+                    - name
+                    type: object
+                required:
+                - bucket
+                - endpoint
+                - region
+                - secretRef
                 type: object
-              backupImage:
-                type: string
-              connectionSecret:
-                description: Secret in which Airlock will look for a ConnectionString
-                  or Atlas credentials, that will be used to connect to the cluster.
-                  It should have enough privileges to manage users and access. This
-                  is not gonna be used by the created users.
-                type: string
-              connectionSecretNamespace:
-                default: airlock-system
-                type: string
-              hostTemplate:
-                description: The host with port that clients will receive when requesting
-                  credentials.
-                type: string
-              optionsTemplate:
-                default: ?replicaSet=rs01
-                description: Extra connection string parameters that will be added
-                  to the connection string.
-                type: string
-              prefixTemplate:
-                default: mongodb
-                description: The prefix used when building the connection string.
-                  Defaults to "mongodb"
-                type: string
-              useAtlasApi:
-                description: If this is set, Atlas API will be used instead of the
-                  regular mongo auth path.
-                type: boolean
-              userNamePrefix:
-                description: Append this prefix to all default/generated usernames
-                  for this cluster. Will be overridden if "username" is specified.
+              type:
+                enum:
+                - s3
                 type: string
             required:
-            - backupImage
-            - connectionSecret
-            - hostTemplate
+            - type
             type: object
           status:
-            description: MongoDBClusterStatus defines the observed state of MongoDBCluster
+            description: MongoDBBackupStoreStatus defines the observed state of MongoDBBackupStore
             properties:
               conditions:
                 items:
@@ -204,8 +158,11 @@ spec:
                   - type
                   type: object
                 type: array
-            required:
-            - conditions
+              lastTested:
+                format: date-time
+                type: string
+              phase:
+                type: string
             type: object
         type: object
     served: true
