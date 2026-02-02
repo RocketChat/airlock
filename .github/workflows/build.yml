@@ -20,7 +20,7 @@ jobs:
           path: ${{ env.__W_SRC_REL }}
       - uses: actions/setup-go@v3
         with:
-          go-version: '=1.21.0'
+          go-version: "=1.21.0"
           cache: false
       - name: Build binary
         run: |
@@ -54,4 +54,3 @@ jobs:
           push: true
           tags: |
             rocketchat/airlock:${{github.sha}}
-
