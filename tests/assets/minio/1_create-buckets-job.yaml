@@ -15,18 +15,18 @@ spec:
         - -c
         - |
           echo "Waiting for MinIO to be ready..."
-          until mc alias set myminio https://myminio-hl.minio-tenant.svc.cluster.local:9000 minio minio123; do
+          until mc --insecure alias set myminio https://myminio-hl.minio-tenant.svc.cluster.local:9000 minio minio123; do
             echo "MinIO not ready yet, retrying in 5 seconds..."
             sleep 5
           done
           
           echo "Creating buckets..."
-          mc mb myminio/backups --ignore-existing
+          mc --insecure mb myminio/backups --ignore-existing
           
           echo "Buckets created successfully:"
-          mc ls myminio/
+          mc --insecure ls myminio/
           
           echo "Setting bucket policies..."
-          mc anonymous set download myminio/backups
+          mc --insecure anonymous set download myminio/backups
           
           echo "Bucket setup complete!"

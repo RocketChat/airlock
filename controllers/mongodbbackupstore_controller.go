@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -52,6 +53,8 @@ func (r *MongoDBBackupStoreReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	var store airlockv1alpha1.MongoDBBackupStore
 
+	var errors = utilerrors.NewAggregate([]error{})
+
 	store.Name = req.Name
 	store.Namespace = req.Namespace
 
@@ -63,6 +66,8 @@ func (r *MongoDBBackupStoreReconciler) Reconcile(ctx context.Context, req ctrl.R
 	base := store.DeepCopy()
 
 	if store.Status.Phase == "" {
+		log.Info("store phase is empty, setting to NotReady")
+
 		now := metav1.Now()
 		store.Status.LastTested = &now
 		store.Status.Phase = "NotReady"
@@ -74,13 +79,15 @@ func (r *MongoDBBackupStoreReconciler) Reconcile(ctx context.Context, req ctrl.R
 		})
 
 		if !reflect.DeepEqual(base.Status, store.Status) {
-			return ctrl.Result{}, r.Status().Patch(ctx, &store, client.MergeFrom(base))
+			errors = utilerrors.NewAggregate([]error{errors, r.Status().Patch(ctx, &store, client.MergeFrom(base))})
 		}
-
-		return ctrl.Result{}, nil
 	}
 
+	log.Info("validating bucket exists", "bucket", store.Spec.S3.Bucket)
+
 	if err := r.validateBucketExists(ctx, &store); err != nil {
+		log.Error(err, "failed to validate bucket exists")
+
 		now := metav1.Now()
 		store.Status.LastTested = &now
 		store.Status.Phase = "NotReady"
@@ -92,10 +99,8 @@ func (r *MongoDBBackupStoreReconciler) Reconcile(ctx context.Context, req ctrl.R
 		})
 
 		if !reflect.DeepEqual(base.Status, store.Status) {
-			return ctrl.Result{}, r.Status().Patch(ctx, &store, client.MergeFrom(base))
+			return ctrl.Result{}, utilerrors.NewAggregate([]error{errors, r.Status().Patch(ctx, &store, client.MergeFrom(base))})
 		}
-
-		return ctrl.Result{}, nil
 	}
 
 	now := metav1.Now()

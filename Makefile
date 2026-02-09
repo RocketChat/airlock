@@ -268,14 +268,15 @@ ifndef NAME
 endif
 	test -d tests/k3d/disk || mkdir -pv tests/k3d/disk
 	k3d cluster list -o json | jq '.[].name' -r | grep -q ${NAME} || \
-		k3d cluster create ${NAME} --kubeconfig-update-default=false --kubeconfig-switch-context=false --no-lb --no-rollback --wait -s1 -a1 --volume $(PWD)/tests/k3d/disk:/disk
+		k3d cluster create ${NAME} --kubeconfig-update-default=false --kubeconfig-switch-context=false --no-lb --no-rollback --wait -s1 -a1 --volume $(PWD)/tests/k3d/disk:/disk --k3s-arg "--disable=local-storage@server:*"
 	k3d kubeconfig print ${NAME} > /tmp/${NAME}.kube.config
 	
 .PHONY: k3d-add-storageclass
 k3d-add-storageclass: k3d-cluster
+	$(KUBECTL_WITH_CONFIG) apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.34/deploy/local-path-storage.yaml
 	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/k3d/local-path-config.yaml
-	$(KUBECTL_WITH_CONFIG) rollout restart deployment/local-path-provisioner -n kube-system
-	$(KUBECTL_WITH_CONFIG) rollout status deployment/local-path-provisioner -n kube-system
+	$(KUBECTL_WITH_CONFIG) rollout restart deployment/local-path-provisioner -n local-path-storage
+	$(KUBECTL_WITH_CONFIG) rollout status deployment/local-path-provisioner -n local-path-storage
 	$(KUBECTL_WITH_CONFIG) annotate storageclass local-path storageclass.kubernetes.io/is-default-class- || true
 	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/k3d/manual-storageclass.yaml
 	
@@ -306,6 +307,7 @@ k3d-deploy-mongo: k3d-cluster
 .PHONY: k3d-deploy-minio
 k3d-deploy-minio: k3d-cluster k3d-add-storageclass
 	$(KUBECTL_WITH_CONFIG) apply -k "github.com/minio/operator?ref=v6.0.4" 
+	$(KUBECTL_WITH_CONFIG) rollout status deployment/minio-operator -n minio-operator
 	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/minio
 	
 .PHONY: docker-build-backup-image

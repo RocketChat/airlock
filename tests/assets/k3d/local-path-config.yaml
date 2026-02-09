@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: local-path-config
-  namespace: kube-system
+  namespace: local-path-storage
 data:
   config.json: |-
     {
