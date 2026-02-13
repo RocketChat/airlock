@@ -19,7 +19,6 @@ import (
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
 	"github.com/RocketChat/airlock/tests/utils"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -28,6 +27,57 @@ import (
 const namespace = "airlock-system"
 
 const accessRequestName = "test-request"
+
+const backupStoreName = "mongodbbackupstore-sample"
+
+const mongoNamespace = "mongo"
+
+const backupStoreSecretName = "mongodbbucketstoresecret"
+
+const backupName = "test-backup"
+
+var validBackupSpec = &airlockv1alpha1.MongoDBBackup{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      backupName,
+		Namespace: mongoNamespace,
+	},
+	Spec: airlockv1alpha1.MongoDBBackupSpec{
+		Cluster:             "airlock-test",
+		Database:            "sample_training",
+		ExcludedCollections: []string{},
+		IncludedCollections: []string{},
+		Prefix:              "test-prefix",
+		BackupStoreRef: airlockv1alpha1.MongoDBBackupStoreRef{
+			Name:      backupStoreName,
+			Namespace: mongoNamespace,
+		},
+	},
+}
+
+const scheduleName = "test-backup-schedule"
+
+var suspend = false
+
+var validScheduleSpec = &airlockv1alpha1.MongoDBBackupSchedule{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      scheduleName,
+		Namespace: mongoNamespace,
+	},
+	Spec: airlockv1alpha1.MongoDBBackupScheduleSpec{
+		Schedule:   "*/1 * * * *",
+		BackupSpec: validBackupSpec.Spec,
+		Suspend:    &suspend,
+	},
+}
+
+const (
+	PhaseRunning   = "Running"
+	PhasePending   = "Pending"
+	PhaseFailed    = "Failed"
+	PhaseCompleted = "Completed"
+	PhaseReady     = "Ready"
+	PhaseNotReady  = "NotReady"
+)
 
 var _ = Describe("Airlock Controller", Ordered, func() {
 	BeforeAll(func() {
@@ -178,7 +228,7 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 		})
 
 		Context("MongodbBackupStoreController", func() {
-			// var storeSecretData map[string][]byte
+			var storeSecretData map[string][]byte
 
 			It("should check state of store positively", func() {
 				Expect(cluster.ApplyMongodbBackupStore()).ToNot(HaveOccurred())
@@ -188,8 +238,8 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 				Eventually(func() (string, error) {
 					store := &airlockv1alpha1.MongoDBBackupStore{}
 					err := k8sClient.Get(context.Background(), client.ObjectKey{
-						Name:      "mongodbbackupstore-sample",
-						Namespace: "mongo",
+						Name:      backupStoreName,
+						Namespace: mongoNamespace,
 					}, store)
 
 					if err != nil {
@@ -197,58 +247,56 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 					}
 
 					return store.Status.Phase, nil
-				}, time.Minute, time.Second).Should(Equal("Ready"))
+				}, time.Minute, time.Second).Should(Equal(PhaseReady))
 			})
 
-			// It("should check state of store negatively", func() {
-			// 	By("Eventually store status should be NotReady")
+			It("should check state of store negatively", func() {
+				By("Eventually store status should be NotReady")
 
-			// 	// update secret to have invalid credentials
-			// 	secret := &v1.Secret{
-			// 		ObjectMeta: metav1.ObjectMeta{
-			// 			Name:      "mongodbbucketstoresecret",
-			// 			Namespace: "mongo",
-			// 		},
-			// 		Data: map[string][]byte{
-			// 			"accessKeyId":     []byte("invalid"),
-			// 			"secretAccessKey": []byte("invalid"),
-			// 		},
-			// 	}
+				// update secret to have invalid credentials
+				secret := &v1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      backupStoreSecretName,
+						Namespace: mongoNamespace,
+					},
+					Data: map[string][]byte{
+						"accessKeyId":     []byte("invalid"),
+						"secretAccessKey": []byte("invalid"),
+					},
+				}
 
-			// 	var storeSecret v1.Secret
-			// 	Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(secret), &storeSecret)).ToNot(HaveOccurred())
+				var storeSecret v1.Secret
+				Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(secret), &storeSecret)).ToNot(HaveOccurred())
 
-			// 	storeSecretData = storeSecret.Data
+				storeSecretData = storeSecret.Data
 
-			// 	Expect(k8sClient.Update(context.Background(), secret)).ToNot(HaveOccurred())
+				Expect(k8sClient.Update(context.Background(), secret)).ToNot(HaveOccurred())
 
-			// 	Eventually(func() (string, error) {
-			// 		store := &airlockv1alpha1.MongoDBBackupStore{}
-			// 		err := k8sClient.Get(context.Background(), client.ObjectKey{
-			// 			Name:      "mongodbbackupstore-sample",
-			// 			Namespace: "mongo",
-			// 		}, store)
-			// 		if err != nil {
-			// 			return "", err
-			// 		}
-			// 		return store.Status.Phase, nil
-			// 	}, time.Minute, time.Second).Should(Equal("NotReady"))
-			// })
+				Eventually(func() (string, error) {
+					store := &airlockv1alpha1.MongoDBBackupStore{}
+					err := k8sClient.Get(context.Background(), client.ObjectKey{
+						Name:      backupStoreName,
+						Namespace: mongoNamespace,
+					}, store)
+					if err != nil {
+						return "", err
+					}
+					return store.Status.Phase, nil
+				}, time.Minute, time.Second).Should(Equal(PhaseNotReady))
+			})
 
-			// AfterAll(func() {
-			// 	Expect(k8sClient.Update(context.Background(), &v1.Secret{
-			// 		ObjectMeta: metav1.ObjectMeta{
-			// 			Name:      "mongodbbucketstoresecret",
-			// 			Namespace: "mongo",
-			// 		},
-			// 		Data: storeSecretData,
-			// 	})).ToNot(HaveOccurred())
-			// })
+			AfterAll(func() {
+				Expect(k8sClient.Update(context.Background(), &v1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      backupStoreSecretName,
+						Namespace: mongoNamespace,
+					},
+					Data: storeSecretData,
+				})).ToNot(HaveOccurred())
+			})
 		}, Ordered)
 
 		Context("MongoDBBackup", func() {
-			backupName := "test-backup"
-
 			BeforeAll(func() {
 				By("Ensuring backup store is ready")
 				Expect(cluster.ApplyMongodbBackupStore()).ToNot(HaveOccurred())
@@ -256,8 +304,8 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 				Eventually(func() (string, error) {
 					store := &airlockv1alpha1.MongoDBBackupStore{}
 					err := k8sClient.Get(context.Background(), client.ObjectKey{
-						Name:      "mongodbbackupstore-sample",
-						Namespace: "mongo",
+						Name:      backupStoreName,
+						Namespace: mongoNamespace,
 					}, store)
 
 					if err != nil {
@@ -265,7 +313,7 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 					}
 
 					return store.Status.Phase, nil
-				}, time.Minute, time.Second).Should(Equal("Ready"))
+				}, time.Minute, time.Second).Should(Equal(PhaseReady))
 
 				By("Loading sample data to mongo")
 				Expect(cluster.LoadSampleDataToMongo()).ToNot(HaveOccurred())
@@ -276,65 +324,61 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 
 			It("should create backup and eventually complete", func() {
 				By("Creating MongoDBBackup resource")
-				backup := &airlockv1alpha1.MongoDBBackup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      backupName,
-						Namespace: "mongo",
-					},
-					Spec: airlockv1alpha1.MongoDBBackupSpec{
-						Cluster:             "airlock-test",
-						Database:            "sample_training",
-						ExcludedCollections: []string{},
-						IncludedCollections: []string{},
-						Prefix:              "test-prefix",
-						BackupStoreRef: airlockv1alpha1.MongoDBBackupStoreRef{
-							Name:      "mongodbbackupstore-sample",
-							Namespace: "mongo",
-						},
-					},
-				}
+				backup := validBackupSpec.DeepCopy()
 
+				// creating the backup should immediately set the bucket store ready condition to Pending
 				err := k8sClient.Create(context.Background(), backup)
 				Expect(err).ToNot(HaveOccurred())
 
-				By("Waiting for backup to eventually complete")
+				By("initially backup should be in Pending phase")
 				Eventually(func() (string, error) {
 					backupCR := &airlockv1alpha1.MongoDBBackup{}
 					err := k8sClient.Get(context.Background(), client.ObjectKey{
-						Name:      backupName,
-						Namespace: "mongo",
+						Name:      backup.Name,
+						Namespace: backup.Namespace,
 					}, backupCR)
 					if err != nil {
 						return "", err
 					}
 
-					phase := backupCR.Status.Phase
-					if phase == "Completed" || phase == "Failed" {
-						return phase, nil
+					return backupCR.Status.Phase, nil
+				}, 10*time.Second, 1*time.Second).Should(Or(Equal(PhasePending)))
+
+				By("Waiting for backup to eventually complete")
+				Eventually(func() (string, error) {
+					backupCR := &airlockv1alpha1.MongoDBBackup{}
+					err := k8sClient.Get(context.Background(), client.ObjectKey{
+						Name:      backup.Name,
+						Namespace: backup.Namespace,
+					}, backupCR)
+					if err != nil {
+						return "", err
 					}
 
-					return "", fmt.Errorf("backup still in progress, phase: %s", phase)
-				}, 3*time.Minute, 10*time.Second).Should(Or(Equal("Completed"), Equal("Failed")))
+					return backupCR.Status.Phase, nil
+				}, 3*time.Minute, 10*time.Second).Should(Equal(PhaseCompleted))
 
 				By("Verifying backup phase is Completed")
 				backupCR := &airlockv1alpha1.MongoDBBackup{}
 				err = k8sClient.Get(context.Background(), client.ObjectKey{
-					Name:      backupName,
-					Namespace: "mongo",
+					Name:      backup.Name,
+					Namespace: backup.Namespace,
 				}, backupCR)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(backupCR.Status.Phase).To(Equal("Completed"))
+				Expect(backupCR.Status.Phase).To(Equal(PhaseCompleted))
 			})
 
 			It("should create backup file in the PVC volume", func() {
+				backup := validBackupSpec.DeepCopy()
+
 				root, err := utils.GetRootDir()
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Finding the PVC created for the backup")
 				var pvc v1.PersistentVolumeClaim
 				err = k8sClient.Get(context.Background(), client.ObjectKey{
-					Name:      backupName,
-					Namespace: "mongo",
+					Name:      backup.Name,
+					Namespace: backup.Namespace,
 				}, &pvc)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pvc.Spec.VolumeName).ToNot(BeEmpty(), "PVC should be bound to a volume")
@@ -370,26 +414,16 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 			})
 
 			It("should set phase to Failed when backup fails", func() {
+				backup := validBackupSpec.DeepCopy()
+
 				failedBackupName := "test-backup-failed"
 
+				backup.Name = failedBackupName
+
+				backup.Spec.Database = "somedb"
+				backup.Spec.BackupStoreRef.Name = "nonexistent-store"
+
 				By("Creating MongoDBBackup resource with non-existent database")
-				backup := &airlockv1alpha1.MongoDBBackup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      failedBackupName,
-						Namespace: "mongo",
-					},
-					Spec: airlockv1alpha1.MongoDBBackupSpec{
-						Cluster:             "airlock-test",
-						Database:            "somedb",
-						ExcludedCollections: []string{},
-						IncludedCollections: []string{},
-						Prefix:              "test-prefix",
-						BackupStoreRef: airlockv1alpha1.MongoDBBackupStoreRef{
-							Name:      "nonexistent-store",
-							Namespace: "mongo",
-						},
-					},
-				}
 
 				err := k8sClient.Create(context.Background(), backup)
 				Expect(err).ToNot(HaveOccurred())
@@ -399,29 +433,23 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 					backupCR := &airlockv1alpha1.MongoDBBackup{}
 					err := k8sClient.Get(context.Background(), client.ObjectKey{
 						Name:      failedBackupName,
-						Namespace: "mongo",
+						Namespace: backup.Namespace,
 					}, backupCR)
 					if err != nil {
 						return ""
 					}
 
 					return backupCR.Status.Phase
-				}, 3*time.Minute, 10*time.Second).Should(Equal("Failed"))
+				}, 3*time.Minute, 10*time.Second).Should(Equal(PhaseFailed))
 
 				By("Verifying backup phase is Failed")
 				backupCR := &airlockv1alpha1.MongoDBBackup{}
 				err = k8sClient.Get(context.Background(), client.ObjectKey{
 					Name:      failedBackupName,
-					Namespace: "mongo",
+					Namespace: backup.Namespace,
 				}, backupCR)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(backupCR.Status.Phase).To(Equal("Failed"))
-
-				By("Verifying Ready condition is False")
-				readyCondition := meta.FindStatusCondition(backupCR.Status.Conditions, "Ready")
-				Expect(readyCondition).ToNot(BeNil())
-				Expect(readyCondition.Status).To(Equal(metav1.ConditionFalse))
-				Expect(readyCondition.Reason).To(Equal("BackupStoreNotFound"))
+				Expect(backupCR.Status.Phase).To(Equal(PhaseFailed))
 			})
 		})
 
@@ -435,39 +463,20 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 				Eventually(func() (string, error) {
 					store := &airlockv1alpha1.MongoDBBackupStore{}
 					err := k8sClient.Get(context.Background(), client.ObjectKey{
-						Name:      "mongodbbackupstore-sample",
-						Namespace: "mongo",
+						Name:      backupStoreName,
+						Namespace: mongoNamespace,
 					}, store)
 					if err != nil {
 						return "", err
 					}
 					return store.Status.Phase, nil
-				}, time.Minute, time.Second).Should(Equal("Ready"))
+				}, time.Minute, time.Second).Should(Equal(PhaseReady))
 			})
 
+			// tests phase running
 			It("should create backup CRs", func() {
 				By("Creating MongoDBBackupSchedule resource")
-				schedule := &airlockv1alpha1.MongoDBBackupSchedule{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      scheduleName,
-						Namespace: "mongo",
-					},
-					Spec: airlockv1alpha1.MongoDBBackupScheduleSpec{
-						Schedule: "*/1 * * * *",
-						BackupSpec: airlockv1alpha1.MongoDBBackupSpec{
-							Cluster:             "airlock-test",
-							Database:            "sample_training",
-							ExcludedCollections: []string{},
-							IncludedCollections: []string{},
-							Prefix:              "schedule-test",
-							BackupStoreRef: airlockv1alpha1.MongoDBBackupStoreRef{
-								Name:      "mongodbbackupstore-sample",
-								Namespace: "mongo",
-							},
-						},
-						Suspend: func() *bool { b := false; return &b }(),
-					},
-				}
+				schedule := validScheduleSpec.DeepCopy()
 
 				err := k8sClient.Create(context.Background(), schedule)
 				Expect(err).ToNot(HaveOccurred())
@@ -483,6 +492,20 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 					}
 					return len(backupList.Items), nil
 				}, 2*time.Minute, 10*time.Second).Should(BeNumerically(">=", 1))
+
+				By("Schedule should be in Running phase")
+				Eventually(func() string {
+					var scheduleCr airlockv1alpha1.MongoDBBackupSchedule
+					err := k8sClient.Get(context.Background(), client.ObjectKey{
+						Name:      schedule.Name,
+						Namespace: schedule.Namespace,
+					}, &scheduleCr)
+					if err != nil {
+						return ""
+					}
+
+					return scheduleCr.Status.Phase
+				}, 2*time.Minute, 10*time.Second).Should(Equal(PhaseRunning))
 			})
 
 			It("should create at least 2 backup CRs according to schedule", func() {
@@ -511,6 +534,82 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 					}
 					return len(backupList.Items), nil
 				}, 2*time.Minute, 10*time.Second).Should(BeNumerically(">=", 2))
+			})
+
+			It("should set phase to Failed when schedule fails", func() {
+				By("Creating MongoDBBackupSchedule resource with invalid schedule")
+				schedule := validScheduleSpec.DeepCopy()
+
+				schedule.Spec.Schedule = "invalid"
+
+				schedule.Name += "2"
+
+				err := k8sClient.Create(context.Background(), schedule)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Waiting for schedule to eventually fail")
+				Eventually(func() string {
+					var scheduleCr airlockv1alpha1.MongoDBBackupSchedule
+					err := k8sClient.Get(context.Background(), client.ObjectKey{
+						Name:      schedule.Name,
+						Namespace: schedule.Namespace,
+					}, &scheduleCr)
+					if err != nil {
+						return ""
+					}
+					return scheduleCr.Status.Phase
+				}, 2*time.Minute, 10*time.Second).Should(Equal(PhaseFailed))
+			})
+
+			// test pending, suspended schedule
+			It("should set phase to Pending when schedule is suspended", func() {
+				By("Creating MongoDBBackupSchedule resource with suspended schedule")
+				suspended := true
+				schedule := validScheduleSpec.DeepCopy()
+				schedule.Spec.Suspend = &suspended
+				schedule.Name += "3"
+
+				err := k8sClient.Create(context.Background(), schedule)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Waiting for schedule to eventually be suspended")
+				Eventually(func() string {
+					var scheduleCr airlockv1alpha1.MongoDBBackupSchedule
+					err := k8sClient.Get(context.Background(), client.ObjectKey{
+						Name:      schedule.Name,
+						Namespace: schedule.Namespace,
+					}, &scheduleCr)
+					if err != nil {
+						return ""
+					}
+					return scheduleCr.Status.Phase
+				}, 2*time.Minute, 10*time.Second).Should(Equal(PhasePending))
+			})
+
+			// pending, but store not found being the reason
+			It("should set phase to Pending when store is not found", func() {
+				By("Creating MongoDBBackupSchedule resource with store not found")
+				schedule := validScheduleSpec.DeepCopy()
+
+				schedule.Spec.BackupSpec.BackupStoreRef.Name = "nonexistent-store"
+
+				schedule.Name += "4"
+
+				err := k8sClient.Create(context.Background(), schedule)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Waiting for schedule to pending")
+				Eventually(func() string {
+					var scheduleCr airlockv1alpha1.MongoDBBackupSchedule
+					err := k8sClient.Get(context.Background(), client.ObjectKey{
+						Name:      schedule.Name,
+						Namespace: schedule.Namespace,
+					}, &scheduleCr)
+					if err != nil {
+						return ""
+					}
+					return scheduleCr.Status.Phase
+				}, 2*time.Minute, 10*time.Second).Should(Equal(PhasePending))
 			})
 		})
 	})

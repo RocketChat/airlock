@@ -1,8 +1,39 @@
 package v1alpha1
 
 import (
+	"github.com/RocketChat/airlock/internal/rules"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+const (
+	StoreConditionBucketExists = "BucketExists"
+
+	MongoDBBackupStoreControllerName = "MongoDBBackupStore"
+
+	StoreReasonBucketUnknown   = "BucketUnknown"
+	StoreReasonBucketNotExists = "BucketNotExists"
+	StoreReasonBucketExists    = "BucketExists"
+
+	StorePhaseNotReady = "NotReady"
+	StorePhaseReady    = "Ready"
+)
+
+var BackupStorePhaseRules = []rules.PhaseRule{
+	rules.NewPhaseRule(
+		// if bucket exists
+		StorePhaseReady,
+		rules.ConditionsAny(
+			rules.ConditionEquals(StoreConditionBucketExists, metav1.ConditionTrue),
+		),
+	),
+	// if bucket does not exist
+	rules.NewPhaseRule(
+		StorePhaseNotReady,
+		rules.ConditionsAny(
+			rules.ConditionEquals(StoreConditionBucketExists, metav1.ConditionFalse, metav1.ConditionUnknown),
+		),
+	),
+}
 
 // MongoDBBackupStoreSpec defines the desired state of MongoDBBackupStore
 // +kubebuilder:object:generate=true
@@ -38,9 +69,9 @@ type ToKeyMap struct {
 // +kubebuilder:object:generate=true
 // +k8s:deepcopy-gen=true
 type MongoDBBackupStoreStatus struct {
-	Phase      string             `json:"phase,omitempty"`
-	LastTested *metav1.Time       `json:"lastTested,omitempty"`
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration *int64             `json:"observedGeneration,omitempty"`
+	Phase              string             `json:"phase,omitempty"`
+	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -65,4 +96,17 @@ type MongoDBBackupStoreList struct {
 
 func init() {
 	SchemeBuilder.Register(&MongoDBBackupStore{}, &MongoDBBackupStoreList{})
+}
+
+// implements Object2
+func (o *MongoDBBackupStore) SetPhase(phase string) {
+	o.Status.Phase = phase
+}
+
+func (o *MongoDBBackupStore) GetPhase() string {
+	return o.Status.Phase
+}
+
+func (o *MongoDBBackupStore) SetObservedGeneration(generation int64) {
+	o.Status.ObservedGeneration = &generation
 }

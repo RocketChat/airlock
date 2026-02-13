@@ -111,8 +111,12 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet ## Run tests.
+test: manifests generate fmt vet ## Run tests (Ginkgo suite only).
 	go test ./tests/ -v -ginkgo.v -coverprofile cover.out
+
+.PHONY: test-unit
+test-unit: ## Run unit tests (excludes Ginkgo suite).
+	go test -tags=unit ./internal/... -v -count=1
 
 ##@ Build
 

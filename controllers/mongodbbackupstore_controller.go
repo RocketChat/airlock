@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
-	"reflect"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -14,7 +13,6 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -22,6 +20,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
+	"github.com/RocketChat/airlock/internal/conditions"
+	internalerrors "github.com/RocketChat/airlock/internal/errors"
+	"github.com/RocketChat/airlock/internal/metrics"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go/logging"
@@ -35,6 +36,7 @@ type MongoDBBackupStoreReconciler struct {
 
 	// TODO: better name
 	Development bool
+	Name        string
 }
 
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbbackupstores,verbs=get;list;watch;create;update;patch;delete
@@ -47,39 +49,41 @@ type MongoDBBackupStoreReconciler struct {
 //+kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 
 func (r *MongoDBBackupStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	start := time.Now()
+
+	// all errors we aggregate into this error
+	errors := internalerrors.New()
+
+	// measures all controller metrics at once, per iteration
+	defer measureControllerReconciliation(r.Name, start, errors)
+
 	log := log.FromContext(ctx)
 
-	log.Info("reconciling backup store", "identifier", req.NamespacedName.String())
+	log.Info("reconciling backup store", "name", req.NamespacedName.String())
 
 	var store airlockv1alpha1.MongoDBBackupStore
 
-	var errors = utilerrors.NewAggregate([]error{})
-
-	store.Name = req.Name
-	store.Namespace = req.Namespace
+	// we defer to measure the status of the backup store after the reconciliation is complete
+	// intermediate staged of ready vs not ready is not tracked
+	defer updateBucketMetric(req.Name, req.Namespace, &store)
 
 	err := r.Get(ctx, req.NamespacedName, &store)
-	if err != nil {
-		return ctrl.Result{}, client.IgnoreAlreadyExists(err)
+	if client.IgnoreNotFound(err) != nil {
+		return ctrl.Result{}, nil
 	}
 
-	base := store.DeepCopy()
+	statusMgr := conditions.NewManager(r, &store.Status.Conditions, &store, airlockv1alpha1.BackupStorePhaseRules)
 
-	if store.Status.Phase == "" {
-		log.Info("store phase is empty, setting to NotReady")
+	if store.Status.ObservedGeneration == nil {
+		/*
+		 * this is a fresh object, we perform some due dilligence to notify both the kubernetes server and the user about the start of the reconciliation process
+		 * by setting all the conditions that need met for the resource to be in any known state (indicated by Phase)
+		 */
 
-		now := metav1.Now()
-		store.Status.LastTested = &now
-		store.Status.Phase = "NotReady"
-		meta.SetStatusCondition(&store.Status.Conditions, metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionFalse,
-			Reason:  "NotReady",
-			Message: "Store is not ready",
-		})
+		errors.Append(statusMgr.SetCondition(ctx, airlockv1alpha1.StoreConditionBucketExists, metav1.ConditionUnknown, airlockv1alpha1.StoreReasonBucketUnknown, "Bucket exists check has not been performed yet"))
 
-		if !reflect.DeepEqual(base.Status, store.Status) {
-			errors = utilerrors.NewAggregate([]error{errors, r.Status().Patch(ctx, &store, client.MergeFrom(base))})
+		if errors.HasErrors() {
+			return ctrl.Result{}, errors
 		}
 	}
 
@@ -88,36 +92,38 @@ func (r *MongoDBBackupStoreReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err := r.validateBucketExists(ctx, &store); err != nil {
 		log.Error(err, "failed to validate bucket exists")
 
-		now := metav1.Now()
-		store.Status.LastTested = &now
-		store.Status.Phase = "NotReady"
-		meta.SetStatusCondition(&store.Status.Conditions, metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionFalse,
-			Reason:  "BucketNotExists",
-			Message: fmt.Sprintf("failed to validate bucket exists: %s", err.Error()),
-		})
+		errors.Append(statusMgr.SetCondition(ctx,
+			airlockv1alpha1.StoreConditionBucketExists,
+			metav1.ConditionFalse,
+			airlockv1alpha1.StoreReasonBucketNotExists,
+			fmt.Sprintf("failed to validate bucket exists: %s", err.Error()),
+		))
 
-		if !reflect.DeepEqual(base.Status, store.Status) {
-			return ctrl.Result{}, utilerrors.NewAggregate([]error{errors, r.Status().Patch(ctx, &store, client.MergeFrom(base))})
-		}
+		return ctrl.Result{}, errors
 	}
 
-	now := metav1.Now()
-	store.Status.LastTested = &now
-	store.Status.Phase = "Ready"
-	meta.SetStatusCondition(&store.Status.Conditions, metav1.Condition{
-		Type:    "Ready",
-		Status:  metav1.ConditionTrue,
-		Reason:  "BucketExists",
-		Message: "Store config successfully validated",
-	})
+	// bucket exists
+	errors.Append(statusMgr.SetCondition(ctx,
+		airlockv1alpha1.StoreConditionBucketExists,
+		metav1.ConditionTrue,
+		airlockv1alpha1.StoreReasonBucketExists,
+		"Store config successfully validated",
+	))
 
-	if !reflect.DeepEqual(base.Status, store.Status) {
-		return ctrl.Result{}, r.Status().Patch(ctx, &store, client.MergeFrom(base))
+	return ctrl.Result{}, errors.IfExists()
+}
+
+func updateBucketMetric(name, namespace string, store *airlockv1alpha1.MongoDBBackupStore) {
+	if store == nil {
+		metrics.RemoveBackupStore(namespace, name)
+		return
 	}
 
-	return ctrl.Result{}, nil
+	if meta.IsStatusConditionTrue(store.Status.Conditions, airlockv1alpha1.StoreConditionBucketExists) {
+		metrics.UpdateBackupStore(store.Namespace, store.Name, true)
+	} else {
+		metrics.UpdateBackupStore(store.Namespace, store.Name, false)
+	}
 }
 
 func (r *MongoDBBackupStoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -191,6 +197,7 @@ func (r *MongoDBBackupStoreReconciler) validateBucketExists(ctx context.Context,
 			},
 		}
 	}
+
 	s3Client := s3.New(s3.Options{
 		BaseEndpoint: &store.Spec.S3.Endpoint,
 		Logger:       l,
@@ -204,8 +211,6 @@ func (r *MongoDBBackupStoreReconciler) validateBucketExists(ctx context.Context,
 		Region:     store.Spec.S3.Region,
 		HTTPClient: httpClient,
 	})
-
-	logger.Info("using creds", "accessKey", accessKey, "secretKey", secretKey, "bucket", store.Spec.S3.Bucket)
 
 	if err := s3.NewBucketExistsWaiter(s3Client).Wait(ctx, &s3.HeadBucketInput{
 		Bucket: &store.Spec.S3.Bucket,

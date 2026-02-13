@@ -1,8 +1,57 @@
 package v1alpha1
 
 import (
+	"github.com/RocketChat/airlock/internal/rules"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+const (
+	BackupSchedulePhaseRunning = "Running"
+	BackupSchedulePhasePending = "Pending"
+	BackupSchedulePhaseFailed  = "Failed"
+
+	BackupScheduleConditionBucketStoreReady           = "BucketStoreReady"
+	BackupScheduleConditionBackupCreateFailed         = "BackupCreateFailed"
+	BackupScheduleConditionInternalTaskScheduleFailed = "InternalTaskScheduleFailed"
+
+	BackupScheduleReasonBackupStoreNotFound = "BackupStoreNotFound"
+	BackupScheduleReasonBackupStoreNotReady = "BackupStoreNotReady"
+	BackupScheduleReasonBackupCreated       = "BackupCreated"
+)
+
+var BackupSchedulePhaseRules = []rules.PhaseRule{
+	rules.NewPhaseRule(
+		BackupSchedulePhaseRunning,
+		// store must be ready
+		// backup creation did not fail
+		// schedule must not be suspended
+		rules.ConditionsAll(
+			rules.ConditionEquals(BackupScheduleConditionBucketStoreReady, metav1.ConditionTrue),
+			rules.ConditionEquals(BackupScheduleConditionBackupCreateFailed, metav1.ConditionFalse),
+			rules.ConditionEquals(BackupScheduleConditionInternalTaskScheduleFailed, metav1.ConditionFalse),
+		),
+	),
+	rules.NewPhaseRule(
+		BackupSchedulePhaseFailed,
+		// backup creation failed
+		// or internal task schedule failed
+		rules.ConditionsAny(
+			rules.ConditionEquals(BackupScheduleConditionBackupCreateFailed, metav1.ConditionTrue),
+			rules.ConditionEquals(BackupScheduleConditionInternalTaskScheduleFailed, metav1.ConditionTrue),
+		),
+	),
+	rules.NewPhaseRule(
+		BackupSchedulePhasePending,
+		// store may niot be ready yet, keep itr in pending state
+		// backup creation unknown, pending is ok
+		// suspended, pending
+		rules.ConditionsAny(
+			rules.ConditionEquals(BackupScheduleConditionBucketStoreReady, metav1.ConditionUnknown, metav1.ConditionFalse),
+			rules.ConditionEquals(BackupScheduleConditionBackupCreateFailed, metav1.ConditionUnknown),
+			rules.ConditionEquals(BackupScheduleConditionInternalTaskScheduleFailed, metav1.ConditionUnknown),
+		),
+	),
+}
 
 // MongoDBBackupScheduleSpec defines the desired state of MongoDBBackupSchedule
 // +kubebuilder:object:generate=true
@@ -36,8 +85,13 @@ type MongoDBBackupScheduleSpec struct {
 // +k8s:deepcopy-gen=true
 type MongoDBBackupScheduleStatus struct {
 	// Phase indicates the overall status of the schedule
-	// +kubebuilder:validation:Enum=Succeeding;Failing
+	// +kubebuilder:validation:Enum=Running;Pending;Failed;
 	Phase string `json:"phase,omitempty"`
+
+	// ObservedGeneration is the generation of the schedule that was last processed by the controller
+	// +kubebuilder:validation:Format=int64
+	// +kubebuilder:validation:Minimum=0
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
 	// LastBackupTime is the time of the last successful backup
 	LastBackupTime *metav1.Time `json:"lastBackupTime,omitempty"`
@@ -82,4 +136,16 @@ type MongoDBBackupScheduleList struct {
 
 func init() {
 	SchemeBuilder.Register(&MongoDBBackupSchedule{}, &MongoDBBackupScheduleList{})
+}
+
+func (o *MongoDBBackupSchedule) SetPhase(phase string) {
+	o.Status.Phase = phase
+}
+
+func (o *MongoDBBackupSchedule) GetPhase() string {
+	return o.Status.Phase
+}
+
+func (o *MongoDBBackupSchedule) SetObservedGeneration(generation int64) {
+	o.Status.ObservedGeneration = &generation
 }

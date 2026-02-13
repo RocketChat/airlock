@@ -8,13 +8,16 @@ import (
 	"time"
 
 	"github.com/RocketChat/airlock/api/v1alpha1"
+	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
 	"github.com/RocketChat/airlock/controllers/reconciler"
+	"github.com/RocketChat/airlock/internal/conditions"
 	"go.mongodb.org/mongo-driver/bson"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -95,7 +98,7 @@ func reconcileMongoDbAccessRequest(ctx context.Context, cl client.Client, backup
 	return &accessRequest, err
 }
 
-func reconcilePvc(ctx context.Context, cl client.Client, backupCr v1alpha1.MongoDBBackup, accessRequest v1alpha1.MongoDBAccessRequest) (*v1.PersistentVolumeClaim, error) {
+func reconcilePvc(ctx context.Context, cl client.Client, statusMgr *conditions.StatusManager, backupCr v1alpha1.MongoDBBackup, accessRequest v1alpha1.MongoDBAccessRequest) (*v1.PersistentVolumeClaim, error) {
 	logger := log.FromContext(ctx)
 
 	var pvc v1.PersistentVolumeClaim
@@ -114,12 +117,16 @@ func reconcilePvc(ctx context.Context, cl client.Client, backupCr v1alpha1.Mongo
 					return false, err
 				}
 
-				if accessRequest.Status.Conditions[0].Status == metav1.ConditionTrue {
+				if meta.IsStatusConditionTrue(accessRequest.Status.Conditions, "Ready") {
 					return true, nil
 				}
 
 				return false, nil
 			}); err != nil {
+				return err
+			}
+
+			if err := statusMgr.SetCondition(ctx, airlockv1alpha1.BackupConditionAccessRequestReady, metav1.ConditionTrue, airlockv1alpha1.BackupReasonAccessRequestReady, "Access request is ready"); err != nil {
 				return err
 			}
 
@@ -201,7 +208,7 @@ func _getS3EnvVars(ctx context.Context, cl client.Client, backupCr v1alpha1.Mong
 	}, nil
 }
 
-func _reconcileJob(ctx context.Context, cl client.Client, backupCr *v1alpha1.MongoDBBackup, mode string) (*batchv1.Job, error) {
+func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.StatusManager, backupCr *v1alpha1.MongoDBBackup, mode string) (*batchv1.Job, error) {
 	// use backup job for the image
 	image, err := getMongoDbBackupImage(ctx, cl, backupCr.Spec.Cluster)
 	if err != nil {
@@ -213,7 +220,7 @@ func _reconcileJob(ctx context.Context, cl client.Client, backupCr *v1alpha1.Mon
 		return nil, err
 	}
 
-	pvc, err := reconcilePvc(ctx, cl, *backupCr, *accessRequest)
+	pvc, err := reconcilePvc(ctx, cl, statusMgr, *backupCr, *accessRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -273,10 +280,10 @@ func _reconcileJob(ctx context.Context, cl client.Client, backupCr *v1alpha1.Mon
 	return &job, nil
 }
 
-func reconcileBackupJob(ctx context.Context, cl client.Client, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
-	return _reconcileJob(ctx, cl, backupCr, "backup")
+func reconcileBackupJob(ctx context.Context, cl client.Client, statusMgr *conditions.StatusManager, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
+	return _reconcileJob(ctx, cl, statusMgr, backupCr, "backup")
 }
 
-func reconcileRestoreJob(ctx context.Context, cl client.Client, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
-	return _reconcileJob(ctx, cl, backupCr, "restore")
+func reconcileRestoreJob(ctx context.Context, cl client.Client, statusMgr *conditions.StatusManager, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
+	return _reconcileJob(ctx, cl, statusMgr, backupCr, "restore")
 }

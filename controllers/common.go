@@ -3,7 +3,10 @@ package controllers
 import (
 	"context"
 	"strings"
+	"time"
 
+	internalerrors "github.com/RocketChat/airlock/internal/errors"
+	"github.com/RocketChat/airlock/internal/metrics"
 	"github.com/mongodb-forks/digest"
 	"go.mongodb.org/atlas/mongodbatlas"
 	corev1 "k8s.io/api/core/v1"
@@ -87,5 +90,19 @@ func getEnvVarFromSecret(name, secretRef, key string) v1.EnvVar {
 				},
 			},
 		},
+	}
+}
+
+type PhaseType string
+
+type ConditionType string
+
+func measureControllerReconciliation(name string, start time.Time, errors *internalerrors.AggregateError) {
+	metrics.ObserveControllerReconcileDuration(name, time.Since(start))
+
+	if errors.HasErrors() {
+		metrics.IncControllerError(name)
+	} else {
+		metrics.IncControllerSuccess(name)
 	}
 }

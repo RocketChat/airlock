@@ -24,3 +24,12 @@ func CreateOrPatch(ctx context.Context, c client.Client, owner client.Object, ob
 
 	return controllerutil.CreateOrPatch(ctx, c, object, mutateFn)
 }
+
+// Create creates the resource with the owner reference
+func Create(ctx context.Context, c client.Client, owner client.Object, object client.Object) error {
+	if err := controllerutil.SetOwnerReference(owner, object, c.Scheme()); err != nil {
+		return err
+	}
+
+	return c.Create(ctx, object)
+}
