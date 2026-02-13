@@ -17,10 +17,6 @@ jobs:
     name: Build and test
     runs-on: ubuntu-latest
 
-    # Service containers to run with `container-job`
-    #services:
-    # none currently
-
     steps:
       - uses: actions/checkout@v3
         with:
