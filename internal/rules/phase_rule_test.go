@@ -1,8 +1,6 @@
-//go:build unit
-
-// thanks cursor
-
 package rules
+
+// thnaks cursor
 
 import (
 	"testing"
