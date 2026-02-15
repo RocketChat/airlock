@@ -99,17 +99,33 @@ var BackupPhaseRules = []rules.PhaseRule{
 // +kubebuilder:object:generate=true
 // +k8s:deepcopy-gen=true
 type MongoDBBackupSpec struct {
-	Cluster             string                `json:"cluster"`
-	Database            string                `json:"database"`
-	ExcludedCollections []string              `json:"excludedCollections,omitempty"`
-	IncludedCollections []string              `json:"includedCollections,omitempty"`
-	BackupStoreRef      MongoDBBackupStoreRef `json:"backupStoreRef"`
-	Prefix              string                `json:"prefix,omitempty"`
+	Cluster             string                  `json:"cluster"`
+	Database            string                  `json:"database"`
+	ExcludedCollections []string                `json:"excludedCollections,omitempty"`
+	IncludedCollections []string                `json:"includedCollections,omitempty"`
+	BackupStoreRef      MongoDBBackupStoreRef   `json:"backupStoreRef"`
+	Prefix              string                  `json:"prefix,omitempty"`
+	Encrypt             MongoDBBackupEncryption `json:"encrypt,omitempty"`
 }
 
 type MongoDBBackupStoreRef struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace,omitempty"`
+}
+
+type MongoDBBackupEncryption struct {
+	Enabled bool `json:"enabled"`
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=age
+	// +kubebuilder:validation:Enum=age;
+	Engine       string                        `json:"engine,omitempty"` // currently only supported engine is age
+	AgeSecretRef MongoDBEncryptionAgeSecretRef `json:"ageSecretRef"`
+}
+
+type MongoDBEncryptionAgeSecretRef struct {
+	Name      string   `json:"name"`
+	Namespace string   `json:"namespace,omitempty"`
+	Mapping   ToKeyMap `json:"mapping"`
 }
 
 // type MongoDBBackupS3 struct {

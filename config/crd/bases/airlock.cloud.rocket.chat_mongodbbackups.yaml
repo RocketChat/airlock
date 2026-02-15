@@ -51,6 +51,36 @@ spec:
                 type: string
               database:
                 type: string
+              encrypt:
+                properties:
+                  ageSecretRef:
+                    properties:
+                      mapping:
+                        properties:
+                          key:
+                            type: string
+                        required:
+                        - key
+                        type: object
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - mapping
+                    - name
+                    type: object
+                  enabled:
+                    type: boolean
+                  engine:
+                    default: age
+                    enum:
+                    - age
+                    type: string
+                required:
+                - ageSecretRef
+                - enabled
+                type: object
               excludedCollections:
                 items:
                   type: string

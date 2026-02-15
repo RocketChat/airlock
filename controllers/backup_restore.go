@@ -11,6 +11,7 @@ import (
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
 	"github.com/RocketChat/airlock/controllers/reconciler"
 	"github.com/RocketChat/airlock/internal/conditions"
+	internalerrors "github.com/RocketChat/airlock/internal/errors"
 	"go.mongodb.org/mongo-driver/bson"
 
 	"go.mongodb.org/mongo-driver/mongo"
@@ -98,7 +99,7 @@ func reconcileMongoDbAccessRequest(ctx context.Context, cl client.Client, backup
 	return &accessRequest, err
 }
 
-func reconcilePvc(ctx context.Context, cl client.Client, statusMgr *conditions.StatusManager, backupCr v1alpha1.MongoDBBackup, accessRequest v1alpha1.MongoDBAccessRequest) (*v1.PersistentVolumeClaim, error) {
+func reconcilePvc(ctx context.Context, cl client.Client, statusMgr *conditions.ConditionsManager, backupCr v1alpha1.MongoDBBackup, accessRequest v1alpha1.MongoDBAccessRequest) (*v1.PersistentVolumeClaim, error) {
 	logger := log.FromContext(ctx)
 
 	var pvc v1.PersistentVolumeClaim
@@ -208,7 +209,9 @@ func _getS3EnvVars(ctx context.Context, cl client.Client, backupCr v1alpha1.Mong
 	}, nil
 }
 
-func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.StatusManager, backupCr *v1alpha1.MongoDBBackup, mode string) (*batchv1.Job, error) {
+func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.ConditionsManager, backupCr *v1alpha1.MongoDBBackup, mode string) (*batchv1.Job, error) {
+	logger := log.FromContext(ctx)
+
 	// use backup job for the image
 	image, err := getMongoDbBackupImage(ctx, cl, backupCr.Spec.Cluster)
 	if err != nil {
@@ -232,6 +235,30 @@ func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.
 
 	mongoEnvVars := _getEnvsForMongo(*accessRequest, *backupCr)
 
+	jobEnvVars := append(append(mongoEnvVars, s3EnvVars...), getEnvVar("PREFIX", backupCr.Spec.Prefix), getEnvVar("NO_VERIFY_SSL", "true"), getEnvVar("BACKUP_FILE", "/backups/backup.gz"))
+
+	if backupCr.Spec.Encrypt.Enabled {
+		logger.Info("encryption enabled", "engine", backupCr.Spec.Encrypt.Engine)
+
+		// we don't care about loading the secret here
+		if err := cl.Get(ctx, client.ObjectKey{Name: backupCr.Spec.Encrypt.AgeSecretRef.Name, Namespace: backupCr.Spec.Encrypt.AgeSecretRef.Namespace}, &v1.Secret{}); err != nil {
+			errors := internalerrors.New()
+
+			errors.Append(err)
+
+			logger.Error(err, "failed to get age secret, not scheduling backup", "name", backupCr.Spec.Encrypt.AgeSecretRef.Name, "namespace", backupCr.Spec.Encrypt.AgeSecretRef.Namespace)
+			if err := statusMgr.SetCondition(ctx, airlockv1alpha1.BackupConditionJobScheduled, metav1.ConditionFalse, "AgeSecretNotFound", "Age secret not found"); err != nil {
+				return nil, errors.Append(err)
+			}
+
+			return nil, errors
+		}
+
+		ageEnvVar := getEnvVarFromSecret("AGE_PRIVATE_KEYS", backupCr.Spec.Encrypt.AgeSecretRef.Name, backupCr.Spec.Encrypt.AgeSecretRef.Mapping.Key)
+
+		jobEnvVars = append(jobEnvVars, ageEnvVar)
+	}
+
 	var job = batchv1.Job{}
 
 	job.Name = backupCr.Name
@@ -243,12 +270,7 @@ func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.
 			ImagePullPolicy: v1.PullIfNotPresent,
 			Args:            []string{mode},
 			Name:            backupCr.Name,
-			Env: append(
-				append(mongoEnvVars, s3EnvVars...),
-				getEnvVar("PREFIX", backupCr.Spec.Prefix),
-				getEnvVar("NO_VERIFY_SSL", "true"),
-				getEnvVar("BACKUP_FILE", "/backups/backup.gz"),
-			),
+			Env:             jobEnvVars,
 			VolumeMounts: []v1.VolumeMount{
 				{
 					Name:      "backup-storage",
@@ -280,10 +302,10 @@ func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.
 	return &job, nil
 }
 
-func reconcileBackupJob(ctx context.Context, cl client.Client, statusMgr *conditions.StatusManager, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
+func reconcileBackupJob(ctx context.Context, cl client.Client, statusMgr *conditions.ConditionsManager, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
 	return _reconcileJob(ctx, cl, statusMgr, backupCr, "backup")
 }
 
-func reconcileRestoreJob(ctx context.Context, cl client.Client, statusMgr *conditions.StatusManager, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
+func reconcileRestoreJob(ctx context.Context, cl client.Client, statusMgr *conditions.ConditionsManager, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
 	return _reconcileJob(ctx, cl, statusMgr, backupCr, "restore")
 }

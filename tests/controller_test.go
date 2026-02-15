@@ -51,6 +51,15 @@ var validBackupSpec = &airlockv1alpha1.MongoDBBackup{
 			Name:      backupStoreName,
 			Namespace: mongoNamespace,
 		},
+		Encrypt: airlockv1alpha1.MongoDBBackupEncryption{
+			Enabled: true,
+			Engine:  "age",
+			AgeSecretRef: airlockv1alpha1.MongoDBEncryptionAgeSecretRef{
+				Name:      "age-encryption-key",
+				Namespace: mongoNamespace,
+				Mapping:   airlockv1alpha1.ToKeyMap{Key: "age-key"},
+			},
+		},
 	},
 }
 
@@ -298,6 +307,9 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 
 		Context("MongoDBBackup", func() {
 			BeforeAll(func() {
+				By("Adding age secret")
+				Expect(cluster.AddAgeSecret()).ToNot(HaveOccurred())
+
 				By("Ensuring backup store is ready")
 				Expect(cluster.ApplyMongodbBackupStore()).ToNot(HaveOccurred())
 

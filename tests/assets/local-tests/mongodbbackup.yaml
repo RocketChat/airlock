@@ -14,3 +14,11 @@ spec:
   backupStoreRef:
     name: mongodbbackupstore-sample
     namespace: "mongo"
+  encrypt:
+    enabled: true
+    engine: age
+    ageSecretRef:
+      name: age-encryption-key
+      namespace: mongo
+      mapping:
+        key: age-key

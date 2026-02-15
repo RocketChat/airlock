@@ -29,7 +29,7 @@ type MongoDBBackupScheduleReconciler struct {
 
 	name string
 
-	statusMgr *conditions.StatusManager
+	statusMgr *conditions.ConditionsManager
 }
 
 //+kubebuilder:rbac:groups=airlock.cloud.rocket.chat,resources=mongodbbackupschedules,verbs=get;list;watch;create;update;patch;delete

@@ -51,10 +51,6 @@ IMG ?= $(IMAGE_TAG_BASE):$(VERSION)
 	
 BIMG ?= backup:latest
 
-# Reusable kubectl command with kubeconfig
-# KUBECTL_WITH_CONFIG = k3d kubeconfig print ${NAME} > /tmp/${NAME}.kube.config && KUBECONFIG=/tmp/${NAME}.kube.config kubectl
-KUBECTL_WITH_CONFIG = KUBECONFIG=/tmp/${NAME}.kube.config kubectl
-
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -265,26 +261,20 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+	
+OPERATOR_TEST_SUITE_MAKE_URL := https://raw.githubusercontent.com/RocketChat/operator-test-suite/refs/heads/main/Makefile
+OPERATOR_TEST_SUITE_MAKE_FILE := .operator-test-suite.mk
 
-.PHONY: k3d-cluster
-k3d-cluster:
-ifndef NAME
-	$(error NAME is required. Usage: make k3d-cluster NAME=my-cluster)
-endif
-	test -d tests/k3d/disk || mkdir -pv tests/k3d/disk
-	k3d cluster list -o json | jq '.[].name' -r | grep -q ${NAME} || \
-		k3d cluster create ${NAME} --kubeconfig-update-default=false --kubeconfig-switch-context=false --no-lb --no-rollback --wait -s1 -a1 --volume $(PWD)/tests/k3d/disk:/disk --k3s-arg "--disable=local-storage@server:*"
-	k3d kubeconfig print ${NAME} > /tmp/${NAME}.kube.config
-	
-.PHONY: k3d-add-storageclass
-k3d-add-storageclass: k3d-cluster
-	$(KUBECTL_WITH_CONFIG) apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.34/deploy/local-path-storage.yaml
-	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/k3d/local-path-config.yaml
-	$(KUBECTL_WITH_CONFIG) rollout restart deployment/local-path-provisioner -n local-path-storage
-	$(KUBECTL_WITH_CONFIG) rollout status deployment/local-path-provisioner -n local-path-storage
-	$(KUBECTL_WITH_CONFIG) annotate storageclass local-path storageclass.kubernetes.io/is-default-class- || true
-	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/k3d/manual-storageclass.yaml
-	
+# Download the file if it doesn't exist
+$(OPERATOR_TEST_SUITE_MAKE_FILE):
+	@curl -sSL $(OPERATOR_TEST_SUITE_MAKE_URL) -o $(OPERATOR_TEST_SUITE_MAKE_FILE)
+
+# Include it (the dash before 'include' ignores errors if the file is missing)
+-include $(OPERATOR_TEST_SUITE_MAKE_FILE)
+
+# Ensure the file is downloaded before running other targets
+bootstrap: $(OPERATOR_TEST_SUITE_MAKE_FILE)
+
 .PHONY: k3d-load-image
 k3d-load-image: docker-build-no-test k3d-cluster k3d-add-storageclass
 	k3d image load ${IMG} -c ${NAME}
@@ -298,13 +288,6 @@ k3d-deploy-airlock: k3d-load-image
 	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/airlock
 	$(KUBECTL_WITH_CONFIG) set env deployment/controller-manager DEV_MODE=true -n airlock-system
 	
-.PHONY: k3d-destroy
-k3d-destroy:
-ifndef NAME
-	$(error NAME is required. Usage: make k3d-cluster NAME=my-cluster)
-endif
-	k3d cluster delete ${NAME}
-
 .PHONY: k3d-deploy-mongo
 k3d-deploy-mongo: k3d-cluster
 	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/mongo
@@ -330,6 +313,8 @@ k3d-run-backup-pod: k3d-cluster k3d-load-backup-image
 .PHONY: k3d-load-mongo-data
 k3d-load-mongo-data: k3d-deploy-mongo
 	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/mongo-restore-job.yaml
+	# wait for the job to complete
+	# $(KUBECTL_WITH_CONFIG) wait --for=condition=complete job/restore-job -n mongo --timeout=5m
 	
 # subject to change as more matures
 .PHONY: k3d-setup-all
@@ -341,19 +326,12 @@ ifndef NAME
 	$(error NAME is required. Usage: make k3d-restart-airlock NAME=my-cluster)
 endif
 	$(KUBECTL_WITH_CONFIG) rollout restart deployment controller-manager -n airlock-system
-	
-# Example: make k3d-kubectl NAME=airlock-test get pods \\-A
-k3d-kubectl:
-ifndef NAME
-	$(error NAME is required. Usage: make k3d-kubectl NAME=my-cluster [kubectl args...])
-endif
-	$(KUBECTL_WITH_CONFIG) $(wordlist 2, $(words $(MAKECMDGOALS)), $(MAKECMDGOALS))
-
-# Support for passing commands after the target name
-%::
-	@:
 
 .PHONY: k3d-add-backup-store
 k3d-add-backup-store: k3d-cluster
 	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/mongodbbucketstoresecret.yaml
 	$(KUBECTL_WITH_CONFIG) apply -f ./config/samples/airlock_v1alpha1_mongodbbackupstore.yaml
+	
+.PHONY: k3d-add-age-secret
+k3d-add-age-secret: k3d-cluster
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/age-secret.yaml

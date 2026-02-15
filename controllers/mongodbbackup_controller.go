@@ -27,7 +27,7 @@ type MongoDBBackupReconciler struct {
 
 	Name string
 
-	statusMgr *conditions.StatusManager
+	statusMgr *conditions.ConditionsManager
 }
 
 const ()

@@ -1,6 +1,6 @@
 package rules
 
-// thnaks cursor
+// thansk cursor
 
 import (
 	"testing"
@@ -21,7 +21,7 @@ func TestPhaseRuleAll_Satisfies_EmptyConditions_RequiresOne(t *testing.T) {
 	if rule.Satisfies(nil) {
 		t.Error("expected false when conditions is nil")
 	}
-	if rule.Satisfies([]metav1.Condition{}) {
+	if rule.Satisfies(&[]metav1.Condition{}) {
 		t.Error("expected false when conditions is empty")
 	}
 }
@@ -31,7 +31,7 @@ func TestPhaseRuleAll_Satisfies_OneCondition_Matching(t *testing.T) {
 		ConditionEquals("A", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("A", metav1.ConditionTrue)}
-	if !rule.Satisfies(conds) {
+	if !rule.Satisfies(&conds) {
 		t.Error("expected true when single required condition matches")
 	}
 }
@@ -41,11 +41,11 @@ func TestPhaseRuleAll_Satisfies_OneCondition_WrongStatus(t *testing.T) {
 		ConditionEquals("A", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("A", metav1.ConditionFalse)}
-	if rule.Satisfies(conds) {
+	if rule.Satisfies(&conds) {
 		t.Error("expected false when status does not match")
 	}
 	conds[0].Status = metav1.ConditionUnknown
-	if rule.Satisfies(conds) {
+	if rule.Satisfies(&conds) {
 		t.Error("expected false when status is Unknown")
 	}
 }
@@ -55,7 +55,7 @@ func TestPhaseRuleAll_Satisfies_OneCondition_Missing(t *testing.T) {
 		ConditionEquals("A", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("B", metav1.ConditionTrue)}
-	if rule.Satisfies(conds) {
+	if rule.Satisfies(&conds) {
 		t.Error("expected false when required condition type is missing")
 	}
 }
@@ -71,7 +71,7 @@ func TestPhaseRuleAll_Satisfies_MultipleConditions_AllMatching(t *testing.T) {
 		cond("B", metav1.ConditionTrue),
 		cond("C", metav1.ConditionFalse),
 	}
-	if !rule.Satisfies(conds) {
+	if !rule.Satisfies(&conds) {
 		t.Error("expected true when all required conditions match")
 	}
 }
@@ -82,8 +82,8 @@ func TestPhaseRuleAll_Satisfies_MultipleConditions_OneMissing(t *testing.T) {
 		ConditionEquals("B", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("A", metav1.ConditionTrue)}
-	if rule.Satisfies(conds) {
-		t.Error("expected false when one required condition is missing")
+	if rule.Satisfies(&conds) {
+		t.Error("expected false when one required condition is missing, condition B should be considered Unknown")
 	}
 }
 
@@ -96,7 +96,7 @@ func TestPhaseRuleAll_Satisfies_MultipleConditions_OneWrongStatus(t *testing.T) 
 		cond("A", metav1.ConditionTrue),
 		cond("B", metav1.ConditionFalse),
 	}
-	if rule.Satisfies(conds) {
+	if rule.Satisfies(&conds) {
 		t.Error("expected false when one condition has wrong status")
 	}
 }
@@ -106,13 +106,13 @@ func TestPhaseRuleAll_Satisfies_AllowedStatuses_OneMatches(t *testing.T) {
 	rule := NewPhaseRule("Pending", ConditionsAll(
 		ConditionEquals("A", metav1.ConditionTrue, metav1.ConditionUnknown),
 	))
-	if !rule.Satisfies([]metav1.Condition{cond("A", metav1.ConditionTrue)}) {
+	if !rule.Satisfies(&[]metav1.Condition{cond("A", metav1.ConditionTrue)}) {
 		t.Error("expected true when condition is True")
 	}
-	if !rule.Satisfies([]metav1.Condition{cond("A", metav1.ConditionUnknown)}) {
+	if !rule.Satisfies(&[]metav1.Condition{cond("A", metav1.ConditionUnknown)}) {
 		t.Error("expected true when condition is Unknown")
 	}
-	if rule.Satisfies([]metav1.Condition{cond("A", metav1.ConditionFalse)}) {
+	if rule.Satisfies(&[]metav1.Condition{cond("A", metav1.ConditionFalse)}) {
 		t.Error("expected false when condition is False (not in allowed list)")
 	}
 }
@@ -126,17 +126,17 @@ func TestPhaseRuleAll_Satisfies_ExtraConditions_Ignored(t *testing.T) {
 		cond("B", metav1.ConditionFalse),
 		cond("C", metav1.ConditionUnknown),
 	}
-	if !rule.Satisfies(conds) {
+	if !rule.Satisfies(&conds) {
 		t.Error("expected true; extra conditions should not affect match")
 	}
 }
 
 func TestPhaseRuleAll_Satisfies_EmptyRule(t *testing.T) {
 	rule := NewPhaseRule("Ready", ConditionsAll())
-	if !rule.Satisfies(nil) {
+	if !rule.Satisfies(&[]metav1.Condition{}) {
 		t.Error("empty All rule should satisfy any conditions (no requirements)")
 	}
-	if !rule.Satisfies([]metav1.Condition{cond("A", metav1.ConditionTrue)}) {
+	if !rule.Satisfies(&[]metav1.Condition{cond("A", metav1.ConditionTrue)}) {
 		t.Error("empty All rule should satisfy any conditions")
 	}
 }
@@ -155,7 +155,7 @@ func TestPhaseRuleAll_ComputePhase_Satisfied(t *testing.T) {
 		ConditionEquals("A", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("A", metav1.ConditionTrue)}
-	if got := rule.ComputePhase(conds); got != "Ready" {
+	if got := rule.ComputePhase(&conds); got != "Ready" {
 		t.Errorf("ComputePhase() = %q, want %q", got, "Ready")
 	}
 }
@@ -165,7 +165,7 @@ func TestPhaseRuleAll_ComputePhase_NotSatisfied(t *testing.T) {
 		ConditionEquals("A", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("A", metav1.ConditionFalse)}
-	if got := rule.ComputePhase(conds); got != PhaseUnknown {
+	if got := rule.ComputePhase(&conds); got != PhaseUnknown {
 		t.Errorf("ComputePhase() = %q, want %q", got, PhaseUnknown)
 	}
 }
@@ -179,7 +179,7 @@ func TestPhaseRuleAny_Satisfies_EmptyConditions_RequiresOne(t *testing.T) {
 	if rule.Satisfies(nil) {
 		t.Error("expected false when conditions is nil")
 	}
-	if rule.Satisfies([]metav1.Condition{}) {
+	if rule.Satisfies(&[]metav1.Condition{}) {
 		t.Error("expected false when conditions is empty")
 	}
 }
@@ -189,7 +189,7 @@ func TestPhaseRuleAny_Satisfies_OneCondition_Matching(t *testing.T) {
 		ConditionEquals("A", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("A", metav1.ConditionTrue)}
-	if !rule.Satisfies(conds) {
+	if !rule.Satisfies(&conds) {
 		t.Error("expected true when single condition matches")
 	}
 }
@@ -199,7 +199,7 @@ func TestPhaseRuleAny_Satisfies_OneCondition_WrongStatus(t *testing.T) {
 		ConditionEquals("A", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("A", metav1.ConditionFalse)}
-	if rule.Satisfies(conds) {
+	if rule.Satisfies(&conds) {
 		t.Error("expected false when status does not match")
 	}
 }
@@ -209,7 +209,7 @@ func TestPhaseRuleAny_Satisfies_OneCondition_Missing(t *testing.T) {
 		ConditionEquals("A", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("B", metav1.ConditionTrue)}
-	if rule.Satisfies(conds) {
+	if rule.Satisfies(&conds) {
 		t.Error("expected false when required condition is missing")
 	}
 }
@@ -226,7 +226,7 @@ func TestPhaseRuleAny_Satisfies_MultipleConditions_OneMatches(t *testing.T) {
 		cond("B", metav1.ConditionFalse),
 		cond("C", metav1.ConditionFalse),
 	}
-	if !rule.Satisfies(conds) {
+	if !rule.Satisfies(&conds) {
 		t.Error("expected true when at least one condition matches")
 	}
 }
@@ -240,7 +240,7 @@ func TestPhaseRuleAny_Satisfies_MultipleConditions_NoneMatch(t *testing.T) {
 		cond("A", metav1.ConditionFalse),
 		cond("B", metav1.ConditionFalse),
 	}
-	if rule.Satisfies(conds) {
+	if rule.Satisfies(&conds) {
 		t.Error("expected false when no condition matches")
 	}
 }
@@ -254,7 +254,7 @@ func TestPhaseRuleAny_Satisfies_MultipleConditions_AllMatch(t *testing.T) {
 		cond("A", metav1.ConditionTrue),
 		cond("B", metav1.ConditionTrue),
 	}
-	if !rule.Satisfies(conds) {
+	if !rule.Satisfies(&conds) {
 		t.Error("expected true when all conditions match (any still satisfies)")
 	}
 }
@@ -263,13 +263,13 @@ func TestPhaseRuleAny_Satisfies_AllowedStatuses_OneMatches(t *testing.T) {
 	rule := NewPhaseRule("Pending", ConditionsAny(
 		ConditionEquals("A", metav1.ConditionTrue, metav1.ConditionUnknown),
 	))
-	if !rule.Satisfies([]metav1.Condition{cond("A", metav1.ConditionTrue)}) {
+	if !rule.Satisfies(&[]metav1.Condition{cond("A", metav1.ConditionTrue)}) {
 		t.Error("expected true when condition is True")
 	}
-	if !rule.Satisfies([]metav1.Condition{cond("A", metav1.ConditionUnknown)}) {
+	if !rule.Satisfies(&[]metav1.Condition{cond("A", metav1.ConditionUnknown)}) {
 		t.Error("expected true when condition is Unknown")
 	}
-	if rule.Satisfies([]metav1.Condition{cond("A", metav1.ConditionFalse)}) {
+	if rule.Satisfies(&[]metav1.Condition{cond("A", metav1.ConditionFalse)}) {
 		t.Error("expected false when condition is False")
 	}
 }
@@ -279,7 +279,7 @@ func TestPhaseRuleAny_Satisfies_EmptyRule(t *testing.T) {
 	if rule.Satisfies(nil) {
 		t.Error("empty Any rule with nil conditions should not satisfy")
 	}
-	if rule.Satisfies([]metav1.Condition{cond("A", metav1.ConditionTrue)}) {
+	if rule.Satisfies(&[]metav1.Condition{cond("A", metav1.ConditionTrue)}) {
 		t.Error("empty Any rule has no required conditions, so nothing to match")
 	}
 }
@@ -298,7 +298,7 @@ func TestPhaseRuleAny_ComputePhase_Satisfied(t *testing.T) {
 		ConditionEquals("A", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("A", metav1.ConditionTrue)}
-	if got := rule.ComputePhase(conds); got != "Ready" {
+	if got := rule.ComputePhase(&conds); got != "Ready" {
 		t.Errorf("ComputePhase() = %q, want %q", got, "Ready")
 	}
 }
@@ -308,30 +308,29 @@ func TestPhaseRuleAny_ComputePhase_NotSatisfied(t *testing.T) {
 		ConditionEquals("A", metav1.ConditionTrue),
 	))
 	conds := []metav1.Condition{cond("A", metav1.ConditionFalse)}
-	if got := rule.ComputePhase(conds); got != PhaseUnknown {
+	if got := rule.ComputePhase(&conds); got != PhaseUnknown {
 		t.Errorf("ComputePhase() = %q, want %q", got, PhaseUnknown)
 	}
 }
 
-// ---- ConditionEquals multiple statuses (regression for closure capture) ----
+// ---- ConditionEquals multiple statuses ----
 
 func TestConditionEquals_MultipleStatuses_AllReturnedCorrectly(t *testing.T) {
-	matchers := ConditionEquals("X", metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionUnknown)
-	if len(matchers) != 3 {
-		t.Fatalf("expected 3 matchers, got %d", len(matchers))
+	matcher := ConditionEquals("X", metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionUnknown)
+	types := matcher.ConditionTypes()
+	if !types.Has("X") || types.Len() != 1 {
+		t.Errorf("ConditionTypes() = %v, want set containing only X", types)
 	}
-	seen := make(map[metav1.ConditionStatus]bool)
-	for _, m := range matchers {
-		condType, status := m()
-		if condType != "X" {
-			t.Errorf("matcher returned condition type %q, want X", condType)
+	for _, status := range []metav1.ConditionStatus{metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionUnknown} {
+		c := &metav1.Condition{Type: "X", Status: status}
+		if matcher.Matches(&[]metav1.Condition{*c}) != true {
+			t.Errorf("expected MatcherMatched for status %v", status)
 		}
-		seen[status] = true
 	}
-	for _, s := range []metav1.ConditionStatus{metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionUnknown} {
-		if !seen[s] {
-			t.Errorf("expected to see status %q among matchers", s)
-		}
+	// False status not in allowed list (we only have True, False, Unknown - so any other would fail; use a wrong type)
+	wrongType := &metav1.Condition{Type: "Y", Status: metav1.ConditionTrue}
+	if matcher.Matches(&[]metav1.Condition{*wrongType}) != false {
+		t.Error("expected MatcherNotMatched for wrong condition type")
 	}
 }
 
@@ -346,7 +345,7 @@ func TestConditionsAll_MultipleMatcherGroups(t *testing.T) {
 		cond("A", metav1.ConditionTrue),
 		cond("B", metav1.ConditionFalse),
 	}
-	if !rule.Satisfies(conds) {
+	if !rule.Satisfies(&conds) {
 		t.Error("expected true when all condition groups match")
 	}
 }
@@ -359,19 +358,155 @@ func TestConditionsAny_MultipleMatcherGroups(t *testing.T) {
 		ConditionEquals("B", metav1.ConditionTrue),
 	))
 	// Only A matches
-	if !rule.Satisfies([]metav1.Condition{cond("A", metav1.ConditionTrue)}) {
+	condsA := []metav1.Condition{cond("A", metav1.ConditionTrue)}
+	if !rule.Satisfies(&condsA) {
 		t.Error("expected true when first group matches")
 	}
 	// Only B matches
-	if !rule.Satisfies([]metav1.Condition{cond("B", metav1.ConditionTrue)}) {
+	condsB := []metav1.Condition{cond("B", metav1.ConditionTrue)}
+	if !rule.Satisfies(&condsB) {
 		t.Error("expected true when second group matches")
 	}
 	// Neither matches
-	if rule.Satisfies([]metav1.Condition{
+	condsNone := []metav1.Condition{
 		cond("A", metav1.ConditionFalse),
 		cond("B", metav1.ConditionFalse),
-	}) {
+	}
+	if rule.Satisfies(&condsNone) {
 		t.Error("expected false when no group matches")
+	}
+}
+
+// nested / recursive matchers
+func TestNested_ConditionsAllConditionsAny(t *testing.T) {
+	rule := NewPhaseRule("Ready", ConditionsAll(
+		// this
+		ConditionsAny(ConditionEquals("A", metav1.ConditionTrue), ConditionEquals("B", metav1.ConditionTrue)),
+		// and this
+		ConditionEquals("C", metav1.ConditionTrue),
+	))
+
+	// A true, but C also needs to be true, ConditionsAll
+	conds := []metav1.Condition{
+		cond("A", metav1.ConditionTrue),
+		cond("B", metav1.ConditionTrue),
+	}
+
+	if rule.Satisfies(&conds) {
+		t.Error("expected false when only one condition matches")
+	}
+
+	// should pass
+	conds = []metav1.Condition{
+		cond("A", metav1.ConditionTrue),
+		cond("C", metav1.ConditionTrue),
+	}
+
+	if !rule.Satisfies(&conds) {
+		t.Error("expected true when all conditions match")
+	}
+
+	conds = []metav1.Condition{
+		cond("A", metav1.ConditionTrue),
+		cond("B", metav1.ConditionFalse),
+		cond("C", metav1.ConditionTrue),
+	}
+
+	if !rule.Satisfies(&conds) {
+		t.Error("expected true when all conditions match")
+	}
+
+	conds = []metav1.Condition{
+		cond("A", metav1.ConditionFalse),
+		cond("B", metav1.ConditionTrue),
+		cond("C", metav1.ConditionTrue),
+	}
+
+	if !rule.Satisfies(&conds) {
+		t.Error("expected true when B and C match (inner Any satisfied by B)")
+	}
+}
+
+// ---- Recursed ConditionsAny(ConditionsAny(...), ConditionEquals(...)) ----
+
+func TestRecursed_ConditionsAnyConditionsAnyAndEquals(t *testing.T) {
+	// Outer Any: (inner Any with A) OR (B equals True)
+	rule := NewPhaseRule("Ready", ConditionsAny(
+		ConditionsAny(ConditionEquals("A", metav1.ConditionTrue)),
+		ConditionEquals("B", metav1.ConditionTrue),
+	))
+
+	// A true -> inner Any matches -> outer Any matches
+	condsA := []metav1.Condition{cond("A", metav1.ConditionTrue)}
+	if !rule.Satisfies(&condsA) {
+		t.Error("expected true when inner Any matches (A true)")
+	}
+
+	// B true -> outer second branch matches
+	condsB := []metav1.Condition{cond("B", metav1.ConditionTrue)}
+	if !rule.Satisfies(&condsB) {
+		t.Error("expected true when ConditionEquals B matches")
+	}
+
+	// Neither A nor B true -> no match
+	condsNone := []metav1.Condition{
+		cond("A", metav1.ConditionFalse),
+		cond("B", metav1.ConditionFalse),
+	}
+	if rule.Satisfies(&condsNone) {
+		t.Error("expected false when neither inner Any nor B matches")
+	}
+}
+
+func TestRecursed_ConditionsAnyNestedAnyWithMultipleAndEquals(t *testing.T) {
+	// (A or B) or C
+	rule := NewPhaseRule("Ready", ConditionsAny(
+		ConditionsAny(
+			ConditionEquals("A", metav1.ConditionTrue),
+			ConditionEquals("B", metav1.ConditionTrue),
+		),
+		ConditionEquals("C", metav1.ConditionTrue),
+	))
+
+	// A true -> (A or B) matches
+	condsA := []metav1.Condition{cond("A", metav1.ConditionTrue)}
+	if !rule.Satisfies(&condsA) {
+		t.Error("expected true when inner Any matches via A")
+	}
+	// B true -> (A or B) matches
+	condsB := []metav1.Condition{cond("B", metav1.ConditionTrue)}
+	if !rule.Satisfies(&condsB) {
+		t.Error("expected true when inner Any matches via B")
+	}
+	// C true -> outer second branch matches
+	condsC := []metav1.Condition{cond("C", metav1.ConditionTrue)}
+	if !rule.Satisfies(&condsC) {
+		t.Error("expected true when C matches")
+	}
+	// None of A, B, C true
+	condsNone := []metav1.Condition{
+		cond("A", metav1.ConditionFalse),
+		cond("B", metav1.ConditionFalse),
+		cond("C", metav1.ConditionFalse),
+	}
+	if rule.Satisfies(&condsNone) {
+		t.Error("expected false when no branch matches")
+	}
+}
+
+func TestRecursed_ConditionsAnyEmptyInnerAndEquals(t *testing.T) {
+	// ConditionsAny() is empty (no matchers). Outer: empty Any OR ConditionEquals("A", True).
+	// Empty Any never matches, so only A true can satisfy.
+	rule := NewPhaseRule("Ready", ConditionsAny(
+		ConditionsAny(),
+		ConditionEquals("A", metav1.ConditionTrue),
+	))
+
+	if !rule.Satisfies(&[]metav1.Condition{cond("A", metav1.ConditionTrue)}) {
+		t.Error("expected true when ConditionEquals A matches")
+	}
+	if rule.Satisfies(&[]metav1.Condition{cond("B", metav1.ConditionTrue)}) {
+		t.Error("expected false when only B true (empty Any does not match)")
 	}
 }
 

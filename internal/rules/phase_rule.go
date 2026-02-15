@@ -4,166 +4,188 @@ import (
 	"slices"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/RocketChat/airlock/internal/sets"
 )
 
 const PhaseUnknown = "Unknown"
 
 type PhaseRule interface {
 	// Satisfies returns true if the conditions satisfy the rule for this phase
-	Satisfies(conditions []metav1.Condition) bool
+	Satisfies(conditions *[]metav1.Condition) bool
 
 	// Phase returns the phase the rule satisfied
 	Phase() string
 
 	// ComputePhase checks if satisfies the rule, if not, return Unknown
-	ComputePhase(conditions []metav1.Condition) string
+	ComputePhase(conditions *[]metav1.Condition) string
 }
 
-type phaseRuleAll struct {
-	phase string
+// ConditionMatcher matches a condition against a set of expected statuses
+// those statuses are, as of now, True, False and Unknown
+type ConditionMatcher interface {
+	// Match returns true if the (type, status) tuple matches one of the expected tuples
+	Matches(conditions *[]metav1.Condition) bool
 
-	conditions map[string][]metav1.ConditionStatus
+	// ConditionType returns the unerlying condition that this matcher is for
+	ConditionTypes() sets.Set[string]
 }
 
-var _ PhaseRule = (*phaseRuleAll)(nil)
-
-type phaseRuleAny struct {
-	phase string
-
-	conditions map[string][]metav1.ConditionStatus
+type conditionEqualsMatcher struct {
+	condition string
+	statuses  []metav1.ConditionStatus
 }
 
-var _ PhaseRule = (*phaseRuleAny)(nil)
+var _ ConditionMatcher = (*conditionEqualsMatcher)(nil)
 
-type conditionMatcher struct {
-	matchers []ConditionEqualsMatcher
-	all      bool
-}
-
-type ConditionEqualsMatcher func() (condition string, status metav1.ConditionStatus)
-
-func conditions(all bool, matcherLists ...[]ConditionEqualsMatcher) conditionMatcher {
-	finalMatcher := make([]ConditionEqualsMatcher, 0, len(matcherLists))
-
-	for _, matchers := range matcherLists {
-		finalMatcher = append(finalMatcher, matchers...)
+func (m *conditionEqualsMatcher) Matches(conditions *[]metav1.Condition) bool {
+	if conditions == nil {
+		return false
 	}
 
-	return conditionMatcher{
-		matchers: finalMatcher,
-		all:      all,
-	}
-}
-
-func ConditionsAll(matchers ...[]ConditionEqualsMatcher) conditionMatcher {
-	return conditions(true, matchers...)
-}
-
-func ConditionsAny(matchers ...[]ConditionEqualsMatcher) conditionMatcher {
-	return conditions(false, matchers...)
-}
-
-// equals any one of
-func ConditionEquals(condition string, statuses ...metav1.ConditionStatus) []ConditionEqualsMatcher {
-	matchers := make([]ConditionEqualsMatcher, len(statuses))
-
-	for i, status := range statuses {
-		s := status
-		matchers[i] = func() (string, metav1.ConditionStatus) {
-			return condition, s
+	for _, condition := range *conditions {
+		if condition.Type == m.condition && slices.Contains(m.statuses, condition.Status) {
+			return true
 		}
 	}
 
-	return matchers
+	return false
 }
 
-func NewPhaseRule(phase string, matcher conditionMatcher) PhaseRule {
-	var conditionToStatusMap = make(map[string][]metav1.ConditionStatus, len(matcher.matchers))
+func (m *conditionEqualsMatcher) ConditionTypes() sets.Set[string] {
+	return sets.New(m.condition)
+}
 
-	for _, matcher := range matcher.matchers {
-		condition, status := matcher()
-		// initialize the slice
-		if conditionToStatusMap[condition] == nil {
-			conditionToStatusMap[condition] = make([]metav1.ConditionStatus, 0) // True, False, Unknown
-		}
-
-		conditionToStatusMap[condition] = append(conditionToStatusMap[condition], status)
-	}
-
-	if matcher.all {
-		return &phaseRuleAll{
-			phase:      phase,
-			conditions: conditionToStatusMap,
-		}
-	}
-
-	return &phaseRuleAny{
-		phase:      phase,
-		conditions: conditionToStatusMap,
+// ConditionEquals returns matchers for a condition type that may equal any one of the given statuses.
+func ConditionEquals(condition string, statuses ...metav1.ConditionStatus) ConditionMatcher {
+	return &conditionEqualsMatcher{
+		condition: condition,
+		statuses:  statuses,
 	}
 }
 
-func (r *phaseRuleAll) Satisfies(conditions []metav1.Condition) bool {
-	var currentConditionToStatusMap = make(map[string]metav1.ConditionStatus, len(conditions))
+type conditionMatcherAll struct {
+	// a condition must match all the matcherReferences
+	matcherReferences []ConditionMatcher
+}
 
-	for _, condition := range conditions {
-		currentConditionToStatusMap[condition.Type] = condition.Status
+var _ ConditionMatcher = (*conditionMatcherAll)(nil)
+
+func (m *conditionMatcherAll) Matches(conditions *[]metav1.Condition) bool {
+	if conditions == nil {
+		return false
 	}
 
-	for requiredConditionType, requiredConditionStatus := range r.conditions {
-		if currentStatus, exists := currentConditionToStatusMap[requiredConditionType]; exists {
-			// required tyope exists in current state
-			// but if the status in state does not match any of the required statuses, does not satisfy
-			if !slices.Contains(requiredConditionStatus, currentStatus) {
-				return false
-			}
-		} else {
-			// required condition by rule, is not present in the condition list of the resource
-			// does not satisfy
+	for _, matcher := range m.matcherReferences {
+		if !matcher.Matches(conditions) {
 			return false
 		}
 	}
 
-	// if all required conditions are present and equal, it satisfies
 	return true
 }
 
-func (r *phaseRuleAll) Phase() string {
-	return r.phase
-}
+func (m *conditionMatcherAll) ConditionTypes() sets.Set[string] {
+	types := sets.New[string]()
 
-func (r *phaseRuleAll) ComputePhase(conditions []metav1.Condition) string {
-	if r.Satisfies(conditions) {
-		return r.Phase()
+	for _, matcher := range m.matcherReferences {
+		types.DestructiveUnion(matcher.ConditionTypes())
 	}
 
-	return PhaseUnknown
+	return types
 }
 
-func (r *phaseRuleAny) Satisfies(conditions []metav1.Condition) bool {
-	// Any rule dictates that at least one of the required conditions are present and is equal to one of the statuses required by the rule
+func ConditionsAll(matchers ...ConditionMatcher) ConditionMatcher {
+	return &conditionMatcherAll{
+		matcherReferences: matchers,
+	}
+}
 
-	for _, condition := range conditions {
-		if statuses, exists := r.conditions[condition.Type]; exists {
-			if slices.Contains(statuses, condition.Status) {
-				return true
-			}
+type conditionMatcherAny struct {
+	// a condition must match at least one of the matcherReferences
+	matcherReferences []ConditionMatcher
+}
 
-			// return false
-			// ^ since any means any of the conditions can be met, we allow iterating until we find potentially one that satisfies
+var _ ConditionMatcher = (*conditionMatcherAny)(nil)
+
+func (m *conditionMatcherAny) Matches(conditions *[]metav1.Condition) bool {
+	if conditions == nil {
+		return false
+	}
+
+	for _, matcher := range m.matcherReferences {
+		if matcher.Matches(conditions) {
+			return true
 		}
 	}
 
-	// among all the conditions in the current state, if none is required by the rule to satisfy, allow
-	// if current conditions do not have the ones that the rule requires, it does not satisfy
 	return false
 }
 
-func (r *phaseRuleAny) Phase() string {
+func (m *conditionMatcherAny) ConditionTypes() sets.Set[string] {
+	types := sets.New[string]()
+
+	for _, matcher := range m.matcherReferences {
+		types.DestructiveUnion(matcher.ConditionTypes())
+	}
+
+	return types
+}
+
+func ConditionsAny(matchers ...ConditionMatcher) ConditionMatcher {
+	return &conditionMatcherAny{
+		matcherReferences: matchers,
+	}
+}
+
+type phaseRuleSimple struct {
+	phase   string
+	matcher ConditionMatcher
+}
+
+var _ PhaseRule = (*phaseRuleSimple)(nil)
+
+func NewPhaseRule(phase string, matcher ConditionMatcher) PhaseRule {
+	return &phaseRuleSimple{
+		phase:   phase,
+		matcher: matcher,
+	}
+}
+
+func (r *phaseRuleSimple) Satisfies(conditions *[]metav1.Condition) bool {
+	if conditions == nil {
+		return false
+	}
+
+	conditionSet := sets.New[string]()
+
+	for _, condition := range *conditions {
+		conditionSet.Insert(condition.Type)
+	}
+
+	domainConditions := r.matcher.ConditionTypes()
+
+	stateConditions := *conditions
+
+	for domainCondition := range domainConditions {
+		if conditionSet.Has(domainCondition) {
+			continue
+		}
+
+		stateConditions = append(stateConditions, metav1.Condition{
+			Type:   domainCondition,
+			Status: metav1.ConditionUnknown,
+		}) // don't care for the other fields
+	}
+
+	return r.matcher.Matches(&stateConditions)
+}
+
+func (r *phaseRuleSimple) Phase() string {
 	return r.phase
 }
 
-func (r *phaseRuleAny) ComputePhase(conditions []metav1.Condition) string {
+func (r *phaseRuleSimple) ComputePhase(conditions *[]metav1.Condition) string {
 	if r.Satisfies(conditions) {
 		return r.Phase()
 	}

@@ -58,6 +58,10 @@ func (k K3dCluster) LoadBackupImage() error {
 	return Make("k3d-load-backup-image", MakeVar("NAME", k.name))
 }
 
+func (k K3dCluster) AddAgeSecret() error {
+	return Make("k3d-add-age-secret", MakeVar("NAME", k.name))
+}
+
 func (k K3dCluster) Kubeconfig() ([]byte, error) {
 	kubeconfig, err := Run("k3d", "kubeconfig", "show", k.name)
 	if err != nil {
