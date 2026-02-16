@@ -33,3 +33,7 @@ mongoValues.yaml
 db-secret.yaml
 db-cluster.yaml
 *.ignore
+
+tests/k3d/disk/
+
+.operator-test-suite.mk

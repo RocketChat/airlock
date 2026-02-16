@@ -1,0 +1,24 @@
+apiVersion: airlock.cloud.rocket.chat/v1alpha1
+kind: MongoDBBackupStore
+metadata:
+  labels:
+    app.kubernetes.io/name: mongodbbackupstore
+    app.kubernetes.io/instance: mongodbbackupstore-sample
+    app.kubernetes.io/part-of: airlock
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: airlock
+  name: mongodbbackupstore-sample
+  namespace: mongo
+spec:
+  type: s3
+  s3:
+    endpoint: https://minio.minio-tenant.svc.cluster.local
+    bucket: backups
+    region: us-east-1
+    secretRef:
+      name: mongodbbucketstoresecret
+      mappings:
+        accessKeyId:
+          key: accessKeyId
+        secretAccessKey:
+          key: secretAccessKey

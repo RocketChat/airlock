@@ -22,6 +22,36 @@ rules:
   - watch
 - apiGroups:
   - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resourceNames:
+  - '*'
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
   - apps
   - networking.k8s.io
   resources:
@@ -63,6 +93,92 @@ rules:
 - apiGroups:
   - airlock.cloud.rocket.chat
   resources:
+  - mongodbbackups
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackups/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackups/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackupschedules
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackupschedules/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackupschedules/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackupstores
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackupstores/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackupstores/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbbackupstorestores
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
   - mongodbclusters
   verbs:
   - create
@@ -86,3 +202,41 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbrestores
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbrestores/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbrestores/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

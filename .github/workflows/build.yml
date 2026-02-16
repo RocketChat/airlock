@@ -25,10 +25,10 @@ jobs:
         with:
           go-version: '=1.21.0'
           cache: false
-      - uses: nolar/setup-k3d-k3s@v1
-        with:
-          skip-creation: true
+      - uses: RocketChat/k3d-with-registry@main
       - name: Build binary
+        env:
+            CI: true
         run: |
           cd $__W_SRC_REL
           go mod tidy

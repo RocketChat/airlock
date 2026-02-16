@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: mongo
+  labels:
+    app: backup-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+  storageClassName: manual
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: backup-pv
+  labels:
+    app: backup-storage
+spec:
+  capacity:
+    storage: 500Mi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /tmp/backup-storage
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restore-job
+  namespace: mongo
+  labels:
+    app: restore-job
+spec:
+  template:
+    metadata:
+      labels:
+        app: restore-job
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: fix-permissions
+          image: busybox:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Setting permissions on /backups directory"
+              chmod 777 /backups
+          volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+        - name: download-backup
+          image: curlimages/curl:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "downloading sample datasheet"
+              if test -f /backups/$BACKUP_NAME; then
+                echo "backup exists already"
+              else
+                curl https://github.com/debdutdeb/mongodb-sample-data/releases/download/v1.0.0/archive.gz -o /backups/$BACKUP_NAME -L
+              fi
+          env:
+            - name: BACKUP_NAME
+              value: "test.archive"
+          volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+      containers:
+        - name: s3push
+          image: backup:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              # we'll use this to restore later
+              aws --no-verify-ssl s3 cp /backups/$BACKUP_NAME s3://backups/$BACKUP_NAME 
+          env:
+            - name: BACKUP_NAME
+              value: "test.archive"
+            - name: AWS_ENDPOINT_URL_S3
+              value: "https://minio.minio-tenant.svc.cluster.local"
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: AWS_ACCESS_KEY_ID
+              value: "minio"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "minio123"
+            - name: BUCKET
+              value: "backups"
+          volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+        - name: restore
+          image: mongo:7
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "starting mongodb sample loading thing"
+              
+              while :; do
+                echo "attempting to connect to mongo . . .  . . . . .  . . . "
+                if mongosh "$MONGODB_URI" --eval "db.runCommand('ping')" > /dev/null 2>&1; then
+                  echo "successfully connected to mongo"
+                  break
+                else
+                  echo "mongodb not yet ready, sleeping for 5 seconds"
+                  sleep 5
+                fi
+              done
+              
+              # Perform the restore
+              echo "starting mongodb restore"
+              mongorestore --uri="$MONGODB_URI" --drop --archive < /backups/$BACKUP_NAME
+              echo "Restore completed successfully"
+          env:
+            - name: MONGODB_URI
+              value: "mongodb://root:root@mongo.mongo.svc.cluster.local:27017"
+            - name: BACKUP_NAME
+              value: "test.archive"
+          volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+      volumes:
+        - name: backup-storage
+          persistentVolumeClaim:
+            claimName: backup-pvc

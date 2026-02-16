@@ -48,6 +48,8 @@ endif
 
 # Image URL to use all building/pushing image targets
 IMG ?= $(IMAGE_TAG_BASE):$(VERSION)
+	
+BIMG ?= backup:latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -105,13 +107,17 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet ## Run tests.
+test: manifests generate fmt vet ## Run tests (Ginkgo suite only).
 	go test ./tests/ -v -ginkgo.v -coverprofile cover.out
+
+.PHONY: test-unit
+test-unit: ## Run unit tests (excludes Ginkgo suite).
+	go test -tags=unit ./internal/... -v -count=1
 
 ##@ Build
 
 .PHONY: build
-build: generate fmt vet ## Build manager binary.
+build: generate manifests fmt vet ## Build manager binary.
 	CGO_ENABLED=0 GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) go build -o bin/manager main.go
 
 .PHONY: run
@@ -126,7 +132,7 @@ docker-build: test ## Build docker image with the manager.
 	docker build -t ${IMG} .
 
 .PHONY: docker-build-no-test
-docker-build-no-test:
+docker-build-no-test: build
 	docker build -t ${IMG} .
 
 .PHONY: docker-push
@@ -186,7 +192,7 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v3.8.7
-CONTROLLER_TOOLS_VERSION ?= v0.10.0
+CONTROLLER_TOOLS_VERSION ?= v0.19.0
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize
@@ -254,3 +260,82 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+	
+OPERATOR_TEST_SUITE_MAKE_URL := https://raw.githubusercontent.com/RocketChat/operator-test-suite/refs/heads/main/Makefile
+OPERATOR_TEST_SUITE_MAKE_FILE := .operator-test-suite.mk
+
+# Download the file if it doesn't exist
+$(OPERATOR_TEST_SUITE_MAKE_FILE):
+	@curl -sSL $(OPERATOR_TEST_SUITE_MAKE_URL) -o $(OPERATOR_TEST_SUITE_MAKE_FILE)
+
+# Include it (the dash before 'include' ignores errors if the file is missing)
+-include $(OPERATOR_TEST_SUITE_MAKE_FILE)
+
+# Ensure the file is downloaded before running other targets
+bootstrap: $(OPERATOR_TEST_SUITE_MAKE_FILE)
+
+.PHONY: k3d-load-image
+k3d-load-image: docker-build-no-test k3d-cluster k3d-add-storageclass
+	k3d image load ${IMG} -c ${NAME}
+	
+.PHONY: k3d-deploy
+k3d-deploy-airlock: k3d-load-image
+	$(KUBECTL_WITH_CONFIG) apply -f config/crd/bases
+	$(KUBECTL_WITH_CONFIG) get namespace airlock-system 2>&1 >/dev/null || $(KUBECTL_WITH_CONFIG) create namespace airlock-system
+	$(KUBECTL_WITH_CONFIG) apply -k config/rbac
+	$(KUBECTL_WITH_CONFIG) apply -f config/manager/manager.yaml
+	$(KUBECTL_WITH_CONFIG) apply -f tests/assets/airlock
+	$(KUBECTL_WITH_CONFIG) set env deployment/controller-manager DEV_MODE=true -n airlock-system
+	
+.PHONY: k3d-deploy-mongo
+k3d-deploy-mongo: k3d-cluster
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/mongo
+
+.PHONY: k3d-deploy-minio
+k3d-deploy-minio: k3d-cluster k3d-add-storageclass
+	$(KUBECTL_WITH_CONFIG) apply -k "github.com/minio/operator?ref=v6.0.4" 
+	$(KUBECTL_WITH_CONFIG) rollout status deployment/minio-operator -n minio-operator
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/minio
+	# ensures minio is ready
+	$(KUBECTL_WITH_CONFIG) wait --for=condition=complete job/create-minio-buckets -n minio-tenant --timeout=5m
+	
+.PHONY: docker-build-backup-image
+docker-build-backup-image:
+	docker build -t ${BIMG} backup-image/
+	
+.PHONY: k3d-load-backup-image
+k3d-load-backup-image: k3d-cluster docker-build-backup-image
+	k3d image import -c ${NAME} ${BIMG}
+	
+.PHONY: k3d-run-backup-pod
+k3d-run-backup-pod: k3d-cluster k3d-load-backup-image
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/backup-pod.yaml
+	
+.PHONY: k3d-load-mongo-data
+k3d-load-mongo-data: k3d-deploy-mongo k3d-add-storageclass k3d-deploy-minio k3d-load-backup-image
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/mongo-restore-job.yaml
+	# wait for the job to complete
+	# weird hack for me to fix dns for one term
+	[ "$CI" = "true" ] || sudo systemctl restart NetworkManager
+	$(KUBECTL_WITH_CONFIG) wait --for=condition=complete job/restore-job -n mongo --timeout=5m
+	
+# subject to change as more matures
+.PHONY: k3d-setup-all
+k3d-setup-all: k3d-load-mongo-data k3d-load-backup-image k3d-deploy-airlock k3d-deploy-minio
+
+.PHONY: k3d-retsart-airlock
+k3d-restart-airlock:
+ifndef NAME
+	$(error NAME is required. Usage: make k3d-restart-airlock NAME=my-cluster)
+endif
+	$(KUBECTL_WITH_CONFIG) rollout restart deployment controller-manager -n airlock-system
+
+.PHONY: k3d-add-backup-store
+k3d-add-backup-store: k3d-cluster
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/mongodbbucketstoresecret.yaml
+	$(KUBECTL_WITH_CONFIG) apply -f ./config/samples/airlock_v1alpha1_mongodbbackupstore.yaml
+	
+.PHONY: k3d-add-age-secret
+k3d-add-age-secret: k3d-cluster
+	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/age-secret.yaml
+	

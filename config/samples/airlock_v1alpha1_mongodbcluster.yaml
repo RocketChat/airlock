@@ -1,11 +1,32 @@
 apiVersion: airlock.cloud.rocket.chat/v1alpha1
-kind: MongoDBCluster
+kind: MongoDBBackup
 metadata:
-  name: teste-mongodb1
+  labels:
+    app.kubernetes.io/name: mongodbbackup
+    app.kubernetes.io/instance: mongodbbackup-sample
+    app.kubernetes.io/part-of: airlock
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: airlock
+  name: mongodbbackup-sample
 spec:
-  connectionSecret: airlock-connection-string
-  hostTemplate: "mongodb.airlock-test"
-  optionsTemplate: ?replicaSet=rs0
+  mongodbRef:
+    name: mongo
+    namespace: default
+  namespaces:
+    - database: test
+      collections:
+        - users
+        - messages
+  storage:
+    type: s3
+    s3:
+      endpoint: s3.amazonaws.com
+      bucket: rocketchat-backups
+      region: us-east-1
+      secretRef:
+        name: s3-credentials
+        key: credentials
+      prefix: mongodb-backups/
  
 ---
 

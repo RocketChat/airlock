@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backup-test
+  namespace: default
+  labels:
+    app: backup-test
+spec:
+  restartPolicy: Never
+  containers:
+    - name: backup
+      image: backup:latest
+      imagePullPolicy: IfNotPresent
+      command:
+        - sleep
+        - 1d
+      env:
+        - name: MONGODB_URI
+          value: "mongodb://mongo.default.svc.cluster.local:27017"
+        - name: DB_NAME
+          value: "test"
+        - name: COLLECTION_NAMES
+          value: "users,messages"
+        - name: BACKUP_NAME
+          value: "manual-backup"
+        - name: S3_BUCKET
+          value: "backups"
+        - name: S3_PREFIX
+          value: "mongodb-backups"
+      volumeMounts:
+        - name: backup-storage
+          mountPath: /backups
+  volumes:
+    - name: backup-storage
+      emptyDir: {}
