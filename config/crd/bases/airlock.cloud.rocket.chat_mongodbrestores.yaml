@@ -5,14 +5,14 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
-  name: mongodbbackups.airlock.cloud.rocket.chat
+  name: mongodbrestores.airlock.cloud.rocket.chat
 spec:
   group: airlock.cloud.rocket.chat
   names:
-    kind: MongoDBBackup
-    listKind: MongoDBBackupList
-    plural: mongodbbackups
-    singular: mongodbbackup
+    kind: MongoDBRestore
+    listKind: MongoDBRestoreList
+    plural: mongodbrestores
+    singular: mongodbrestore
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -36,7 +36,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: MongoDBBackupSpec defines the desired state of MongoDBBackup
+            description: MongoDBRestoreSpec defines the desired state of MongoDBRestore
             properties:
               backupStoreRef:
                 properties:
@@ -51,53 +51,18 @@ spec:
                 type: string
               database:
                 type: string
-              encryption:
-                properties:
-                  ageSecretRef:
-                    properties:
-                      mapping:
-                        properties:
-                          key:
-                            type: string
-                        required:
-                        - key
-                        type: object
-                      name:
-                        type: string
-                      namespace:
-                        type: string
-                    required:
-                    - mapping
-                    - name
-                    type: object
-                  enabled:
-                    type: boolean
-                  engine:
-                    default: age
-                    enum:
-                    - age
-                    type: string
-                required:
-                - ageSecretRef
-                - enabled
-                type: object
-              excludedCollections:
-                items:
-                  type: string
-                type: array
-              includedCollections:
-                items:
-                  type: string
-                type: array
-              prefix:
+              dropDatabase:
+                type: boolean
+              s3Path:
                 type: string
             required:
             - backupStoreRef
             - cluster
             - database
+            - s3Path
             type: object
           status:
-            description: MongoDBBackupStatus defines the observed state of MongoDBBackup
+            description: MongoDBRestoreStatus defines the observed state of MongoDBRestore
             properties:
               completionTime:
                 format: date-time
@@ -176,16 +141,16 @@ spec:
               phase:
                 type: string
               result:
+                description: MongoDBRestoreStatusResult defines the result of a restore
                 properties:
                   job:
+                    description: MongoDBRestoreStatusJob references the restore job
                     properties:
                       id:
                         type: string
                       name:
                         type: string
                     type: object
-                  path:
-                    type: string
                 type: object
               startTime:
                 format: date-time

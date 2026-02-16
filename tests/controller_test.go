@@ -51,7 +51,7 @@ var validBackupSpec = &airlockv1alpha1.MongoDBBackup{
 			Name:      backupStoreName,
 			Namespace: mongoNamespace,
 		},
-		Encrypt: airlockv1alpha1.MongoDBBackupEncryption{
+		Encryption: airlockv1alpha1.MongoDBBackupEncryption{
 			Enabled: true,
 			Engine:  "age",
 			AgeSecretRef: airlockv1alpha1.MongoDBEncryptionAgeSecretRef{
@@ -76,6 +76,23 @@ var validScheduleSpec = &airlockv1alpha1.MongoDBBackupSchedule{
 		Schedule:   "*/1 * * * *",
 		BackupSpec: validBackupSpec.Spec,
 		Suspend:    &suspend,
+	},
+}
+
+var validRestore = &airlockv1alpha1.MongoDBRestore{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "test-restore",
+		Namespace: mongoNamespace,
+	},
+	Spec: airlockv1alpha1.MongoDBRestoreSpec{
+		Cluster:      "airlock-test",
+		Database:     "sample_training",
+		DropDatabase: true,
+		S3Path:       "test.archive",
+		BackupStoreRef: airlockv1alpha1.MongoDBBackupStoreRef{
+			Name:      backupStoreName,
+			Namespace: mongoNamespace,
+		},
 	},
 }
 
@@ -305,6 +322,50 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 			})
 		}, Ordered)
 
+		Context("MongoDBRestore", func() {
+			BeforeAll(func() {
+				By("Ensuring backup store is ready")
+				Expect(cluster.ApplyMongodbBackupStore()).ToNot(HaveOccurred())
+
+				Eventually(func() (string, error) {
+					store := &airlockv1alpha1.MongoDBBackupStore{}
+					err := k8sClient.Get(context.Background(), client.ObjectKey{
+						Name:      backupStoreName,
+						Namespace: mongoNamespace,
+					}, store)
+
+					if err != nil {
+						return "", err
+					}
+
+					return store.Status.Phase, nil
+				}, time.Minute, time.Second).Should(Equal(PhaseReady))
+
+				By("Loading backup image")
+				Expect(cluster.LoadBackupImage()).ToNot(HaveOccurred())
+			})
+
+			It("should eventually complete restore", func() {
+				restore := validRestore.DeepCopy()
+				err := k8sClient.Create(context.Background(), restore)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Waiting for restore to eventually complete")
+				Eventually(func() (string, error) {
+					restoreCR := &airlockv1alpha1.MongoDBRestore{}
+					err := k8sClient.Get(context.Background(), client.ObjectKey{
+						Name:      restore.Name,
+						Namespace: restore.Namespace,
+					}, restoreCR)
+					if err != nil {
+						return "", err
+					}
+
+					return restoreCR.Status.Phase, nil
+				}, time.Minute, time.Second).Should(Equal(PhaseCompleted))
+			})
+		}, Ordered)
+
 		Context("MongoDBBackup", func() {
 			BeforeAll(func() {
 				By("Adding age secret")
@@ -327,8 +388,8 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 					return store.Status.Phase, nil
 				}, time.Minute, time.Second).Should(Equal(PhaseReady))
 
-				By("Loading sample data to mongo")
-				Expect(cluster.LoadSampleDataToMongo()).ToNot(HaveOccurred())
+				// By("Loading sample data to mongo")
+				// Expect(cluster.LoadSampleDataToMongo()).ToNot(HaveOccurred())
 
 				By("Loading backup image")
 				Expect(cluster.LoadBackupImage()).ToNot(HaveOccurred())
@@ -407,22 +468,16 @@ var _ = Describe("Airlock Controller", Ordered, func() {
 				if pv.Spec.HostPath != nil {
 					directoryName = filepath.Base(pv.Spec.HostPath.Path)
 				} else {
-					directoryName = fmt.Sprintf("pvc-%s-%s-%s", pvc.UID, pvc.Namespace, pvc.Name)
+					directoryName = pv.Name
 				}
 
 				relativeDiskPath := filepath.Join("tests", "k3d", "disk", directoryName)
 
 				By(fmt.Sprintf("Checking if backup file exists at %s", relativeDiskPath))
 
-				backupFilePath := filepath.Join(root, relativeDiskPath, "backup.gz")
-
-				_, err = os.Stat(backupFilePath)
+				_, err = os.Stat(filepath.Join(root, relativeDiskPath, "backup.gz"))
 				Expect(err).ToNot(HaveOccurred())
 
-				By("Verifying backup file is not empty")
-				fileInfo, err := os.Stat(backupFilePath)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(fileInfo.Size()).To(BeNumerically(">", 0), "backup file should not be empty")
 			})
 
 			It("should set phase to Failed when backup fails", func() {

@@ -203,6 +203,32 @@ rules:
   - patch
   - update
 - apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbrestores
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbrestores/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - airlock.cloud.rocket.chat
+  resources:
+  - mongodbrestores/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - batch
   resources:
   - jobs

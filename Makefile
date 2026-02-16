@@ -108,7 +108,6 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet ## Run tests (Ginkgo suite only).
-	go test ./internal/... -v
 	go test ./tests/ -v -ginkgo.v -coverprofile cover.out
 
 .PHONY: test-unit
@@ -297,6 +296,8 @@ k3d-deploy-minio: k3d-cluster k3d-add-storageclass
 	$(KUBECTL_WITH_CONFIG) apply -k "github.com/minio/operator?ref=v6.0.4" 
 	$(KUBECTL_WITH_CONFIG) rollout status deployment/minio-operator -n minio-operator
 	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/minio
+	# ensures minio is ready
+	$(KUBECTL_WITH_CONFIG) wait --for=condition=complete job/create-minio-buckets -n minio-tenant --timeout=5m
 	
 .PHONY: docker-build-backup-image
 docker-build-backup-image:
@@ -311,10 +312,12 @@ k3d-run-backup-pod: k3d-cluster k3d-load-backup-image
 	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/backup-pod.yaml
 	
 .PHONY: k3d-load-mongo-data
-k3d-load-mongo-data: k3d-deploy-mongo
+k3d-load-mongo-data: k3d-deploy-mongo k3d-add-storageclass k3d-deploy-minio k3d-load-backup-image
 	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/mongo-restore-job.yaml
 	# wait for the job to complete
-	# $(KUBECTL_WITH_CONFIG) wait --for=condition=complete job/restore-job -n mongo --timeout=5m
+	# weird hack for me to fix dns for one term
+	[ "$CI" = "true" ] || sudo systemctl restart NetworkManager
+	$(KUBECTL_WITH_CONFIG) wait --for=condition=complete job/restore-job -n mongo --timeout=5m
 	
 # subject to change as more matures
 .PHONY: k3d-setup-all
@@ -335,3 +338,4 @@ k3d-add-backup-store: k3d-cluster
 .PHONY: k3d-add-age-secret
 k3d-add-age-secret: k3d-cluster
 	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/age-secret.yaml
+	

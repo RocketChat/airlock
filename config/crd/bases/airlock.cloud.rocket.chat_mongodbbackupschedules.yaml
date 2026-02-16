@@ -61,7 +61,7 @@ spec:
                     type: string
                   database:
                     type: string
-                  encrypt:
+                  encryption:
                     properties:
                       ageSecretRef:
                         properties:

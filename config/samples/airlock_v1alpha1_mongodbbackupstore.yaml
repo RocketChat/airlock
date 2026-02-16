@@ -12,7 +12,7 @@ metadata:
 spec:
   type: s3
   s3:
-    endpoint: https://myminio-hl.minio-tenant.svc.cluster.local:9000
+    endpoint: https://minio.minio-tenant.svc.cluster.local
     bucket: backups
     region: us-east-1
     secretRef:

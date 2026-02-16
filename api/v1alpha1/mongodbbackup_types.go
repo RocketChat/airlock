@@ -105,7 +105,7 @@ type MongoDBBackupSpec struct {
 	IncludedCollections []string                `json:"includedCollections,omitempty"`
 	BackupStoreRef      MongoDBBackupStoreRef   `json:"backupStoreRef"`
 	Prefix              string                  `json:"prefix,omitempty"`
-	Encrypt             MongoDBBackupEncryption `json:"encrypt,omitempty"`
+	Encryption          MongoDBBackupEncryption `json:"encryption,omitempty"`
 }
 
 type MongoDBBackupStoreRef struct {

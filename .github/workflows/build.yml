@@ -27,6 +27,8 @@ jobs:
           cache: false
       - uses: RocketChat/k3d-with-registry@main
       - name: Build binary
+        env:
+            CI: true
         run: |
           cd $__W_SRC_REL
           go mod tidy

@@ -1,28 +1,25 @@
-#!/bin/bash
+#!/bin/sh
 
 readonly mongodb_uri="${MONGODB_URI?MONGODB_URI is required}"
 readonly database="${DATABASE?DATABASE must be passed}"
-readonly included_collections="${COLLECTIONS?COLLECTIONS must be passed}"
-readonly excluded_collections="${EXCLUDED_COLLECTIONS?EXCLUDED_COLLECTIONS must be passed}"
 
-backup_file="${BACKUP_FILE?BACKUP_FILE must be passed}"
+backup_file="${BACKUP_FILE}"
 
 structured_logger() {
-	local level key value idx jidx
-	level="$1"
+	level=$1
 	shift 1
-	if (($# % 2 == 1)); then
-		jo level=error error="invalid key value pairs"
+	if [ $(( $# % 2 )) -eq 1 ]; then
+		jo level=error msg="invalid key value pairs"
 		exit 1
 	fi
-	local -a args=("level=$level")
-	for ((idx = 1; idx <= $#; idx += 2)); do
-		jidx=$((idx + 1))
-		key="${!idx}"
-		value="${!jidx}"
-		args+=( "$key=$value" )
+	while [ $# -ge 2 ]; do
+		key=$1
+		value=$2
+		shift 2
+		set -- "$@" "${key}=${value}"
 	done
-	jo "${args[@]}"
+	set -- "level=$level" "$@"
+	jo "$@"
 }
 
 error() {
@@ -42,8 +39,23 @@ debug() {
 	structured_logger debug msg "$*"
 }
 
+
+aws() {
+	if [ "$NO_VERIFY_SSL" = "true" ]; then
+		command aws --no-verify-ssl "$@"
+	else
+		command aws "$@"
+	fi
+}
+
 dump() {
 	info "starting in dump mode"
+	if [ -z "$backup_file" ]; then
+		error "BACKUP_FILE is required"
+	fi
+
+	local included_collections="${COLLECTIONS}"
+	local excluded_collections="${EXCLUDED_COLLECTIONS}"
 
 	local excluded_arg excluded_col
 
@@ -57,7 +69,15 @@ dump() {
 		included_arg="${included_arg} --collection=$included_col"
 	done
 
-	local cmd="mongodump --uri=$mongodb_uri $included_arg $excluded_arg -d $database --archive --gzip"
+	local cmd="mongodump --uri=$mongodb_uri -d $database --archive --gzip"
+	
+	if [ -n "$included_collections" ]; then
+		cmd="$cmd --collection=$included_collections"
+	fi
+
+	if [ -n "$excluded_collections" ]; then
+		cmd="$cmd --excludeCollection=$excluded_collections"
+	fi
 	
 	local encryption_cmd
 
@@ -85,23 +105,46 @@ dump() {
 	info "backup finished"
 }
 
+trim_starting_slash() {
+	echo "$1" | sed "s/^\///"
+}
+
 restore() {
-	error "[restore] function not implemented"
+	set -x
+	info "starting in restore mode"
+	
+	local bucket="$BUCKET"
+	if [ -z "$bucket" ]; then
+		error "BUCKET is required"
+	fi
+	
+	local s3_path="${S3_PATH}"
+	if [ -z "$s3_path" ]; then
+		error "S3_PATH is required"
+	fi
+	
+	local full_path="s3://$(trim_trailing_slash "$bucket")/$(trim_starting_slash "$s3_path")"
+	
+	info "downloading backup from $full_path and restoring"
+	aws s3 cp "$full_path" - | \
+		mongorestore --uri="$mongodb_uri" --drop --archive || error "failed to restore database"
+	
+	info "restore finished"
+}
+
+trim_trailing_slash() {
+	echo "$1" | sed "s/\/$//"
 }
 
 s3push() {
-	local destination="s3://$BUCKET"
-	if [ "$PREFIX" != "" ]; then destination="$destination/$PREFIX"; fi
+	if [ -z "$BUCKET" ]; then
+		error "BUCKET is required"
+	fi
+	
+	local destination="s3://$(trim_trailing_slash "$BUCKET")"
+	if [ -n "$PREFIX" ]; then destination="${destination}/$(trim_trailing_slash "$PREFIX")"; fi
 
-	__aws() {
-		if [ "$NO_VERIFY_SSL" = "true" ]; then
-			aws --no-verify-ssl "$@"
-		else
-			aws "$@"
-		fi
-	}
-
-	__aws s3 cp "$backup_file" "$destination"
+	aws s3 cp "$backup_file" "$destination/$(basename "$backup_file")"
 }
 
 main() {
@@ -111,7 +154,7 @@ main() {
 		s3push
 		;;
 	"restore")
-		error "not implemented"
+		restore
 		;;
 	esac
 }

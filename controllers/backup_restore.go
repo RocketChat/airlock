@@ -81,17 +81,20 @@ func getMongoDbBackupImage(ctx context.Context, handler client.Client, cluster s
 	return clusterCr.Spec.BackupImage, nil
 }
 
-func reconcileMongoDbAccessRequest(ctx context.Context, cl client.Client, backupCr *v1alpha1.MongoDBBackup) (*v1alpha1.MongoDBAccessRequest, error) {
+func reconcileMongoDbAccessRequest(ctx context.Context, cl client.Client, owner client.Object, cluster, database string) (*v1alpha1.MongoDBAccessRequest, error) {
 	var accessRequest v1alpha1.MongoDBAccessRequest
 
-	accessRequest.Name = fmt.Sprintf("%s-access", backupCr.Name)
+	name := owner.GetName()
+	namespace := owner.GetNamespace()
 
-	accessRequest.Namespace = backupCr.Namespace
+	accessRequest.Name = fmt.Sprintf("%s-access", name)
 
-	_, err := reconciler.CreateOrPatch(ctx, cl, backupCr, &accessRequest, func() error {
-		accessRequest.Spec.ClusterName = backupCr.Spec.Cluster
-		accessRequest.Spec.Database = backupCr.Spec.Database
-		accessRequest.Spec.UserName = backupCr.Name + "-user"
+	accessRequest.Namespace = namespace
+
+	_, err := reconciler.CreateOrPatch(ctx, cl, owner, &accessRequest, func() error {
+		accessRequest.Spec.ClusterName = cluster
+		accessRequest.Spec.Database = database
+		accessRequest.Spec.UserName = name + "-user"
 
 		return nil
 	})
@@ -209,7 +212,7 @@ func _getS3EnvVars(ctx context.Context, cl client.Client, backupCr v1alpha1.Mong
 	}, nil
 }
 
-func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.ConditionsManager, backupCr *v1alpha1.MongoDBBackup, mode string) (*batchv1.Job, error) {
+func reconcileBackupJob(ctx context.Context, cl client.Client, statusMgr *conditions.ConditionsManager, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
 	logger := log.FromContext(ctx)
 
 	// use backup job for the image
@@ -218,7 +221,7 @@ func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.
 		return nil, err
 	}
 
-	accessRequest, err := reconcileMongoDbAccessRequest(ctx, cl, backupCr)
+	accessRequest, err := reconcileMongoDbAccessRequest(ctx, cl, backupCr, backupCr.Spec.Cluster, backupCr.Spec.Database)
 	if err != nil {
 		return nil, err
 	}
@@ -237,16 +240,16 @@ func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.
 
 	jobEnvVars := append(append(mongoEnvVars, s3EnvVars...), getEnvVar("PREFIX", backupCr.Spec.Prefix), getEnvVar("NO_VERIFY_SSL", "true"), getEnvVar("BACKUP_FILE", "/backups/backup.gz"))
 
-	if backupCr.Spec.Encrypt.Enabled {
-		logger.Info("encryption enabled", "engine", backupCr.Spec.Encrypt.Engine)
+	if backupCr.Spec.Encryption.Enabled {
+		logger.Info("encryption enabled", "engine", backupCr.Spec.Encryption.Engine)
 
 		// we don't care about loading the secret here
-		if err := cl.Get(ctx, client.ObjectKey{Name: backupCr.Spec.Encrypt.AgeSecretRef.Name, Namespace: backupCr.Spec.Encrypt.AgeSecretRef.Namespace}, &v1.Secret{}); err != nil {
+		if err := cl.Get(ctx, client.ObjectKey{Name: backupCr.Spec.Encryption.AgeSecretRef.Name, Namespace: backupCr.Spec.Encryption.AgeSecretRef.Namespace}, &v1.Secret{}); err != nil {
 			errors := internalerrors.New()
 
 			errors.Append(err)
 
-			logger.Error(err, "failed to get age secret, not scheduling backup", "name", backupCr.Spec.Encrypt.AgeSecretRef.Name, "namespace", backupCr.Spec.Encrypt.AgeSecretRef.Namespace)
+			logger.Error(err, "failed to get age secret, not scheduling backup", "name", backupCr.Spec.Encryption.AgeSecretRef.Name, "namespace", backupCr.Spec.Encryption.AgeSecretRef.Namespace)
 			if err := statusMgr.SetCondition(ctx, airlockv1alpha1.BackupConditionJobScheduled, metav1.ConditionFalse, "AgeSecretNotFound", "Age secret not found"); err != nil {
 				return nil, errors.Append(err)
 			}
@@ -254,7 +257,7 @@ func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.
 			return nil, errors
 		}
 
-		ageEnvVar := getEnvVarFromSecret("AGE_PRIVATE_KEYS", backupCr.Spec.Encrypt.AgeSecretRef.Name, backupCr.Spec.Encrypt.AgeSecretRef.Mapping.Key)
+		ageEnvVar := getEnvVarFromSecret("AGE_PRIVATE_KEYS", backupCr.Spec.Encryption.AgeSecretRef.Name, backupCr.Spec.Encryption.AgeSecretRef.Mapping.Key)
 
 		jobEnvVars = append(jobEnvVars, ageEnvVar)
 	}
@@ -268,7 +271,7 @@ func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.
 		container := v1.Container{
 			Image:           image,
 			ImagePullPolicy: v1.PullIfNotPresent,
-			Args:            []string{mode},
+			Args:            []string{"backup"},
 			Name:            backupCr.Name,
 			Env:             jobEnvVars,
 			VolumeMounts: []v1.VolumeMount{
@@ -302,10 +305,142 @@ func _reconcileJob(ctx context.Context, cl client.Client, statusMgr *conditions.
 	return &job, nil
 }
 
-func reconcileBackupJob(ctx context.Context, cl client.Client, statusMgr *conditions.ConditionsManager, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
-	return _reconcileJob(ctx, cl, statusMgr, backupCr, "backup")
-}
+func reconcileRestoreJob(ctx context.Context, cl client.Client, statusMgr *conditions.ConditionsManager, restoreCr *v1alpha1.MongoDBRestore) (*batchv1.Job, error) {
+	logger := log.FromContext(ctx)
 
-func reconcileRestoreJob(ctx context.Context, cl client.Client, statusMgr *conditions.ConditionsManager, backupCr *v1alpha1.MongoDBBackup) (*batchv1.Job, error) {
-	return _reconcileJob(ctx, cl, statusMgr, backupCr, "restore")
+	// use backup job for the image
+	image, err := getMongoDbBackupImage(ctx, cl, restoreCr.Spec.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	accessRequest, err := reconcileMongoDbAccessRequest(ctx, cl, restoreCr, restoreCr.Spec.Cluster, restoreCr.Spec.Database)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := statusMgr.SetCondition(ctx, airlockv1alpha1.RestoreConditionAccessRequestReady, metav1.ConditionTrue, airlockv1alpha1.RestoreReasonAccessRequestReady, "Access request is ready"); err != nil {
+		return nil, err
+	}
+
+	// don't need pvc of more than couple megs, just set to 500
+	var pvc v1.PersistentVolumeClaim
+
+	pvc.Name = restoreCr.Name
+	pvc.Namespace = restoreCr.Namespace
+
+	_, err = reconciler.CreateOrPatch(ctx, cl, restoreCr, &pvc, func() error {
+		exisingStorage := pvc.Spec.Resources.Requests.Storage()
+
+		if exisingStorage.CmpInt64(0) == 0 {
+			logger.Info("no existing request set, requesting db size")
+			var requestSize int64 = 500 * 1024 * 1024 // 500 megs
+
+			pvc.Spec = v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{
+					v1.ReadWriteOnce,
+				},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: *resource.NewQuantity(requestSize, resource.BinarySI),
+					},
+				},
+				StorageClassName: nil,
+			}
+		} else {
+			// mmake sure we keep thi9s
+			pvc.Spec.Resources.Requests = v1.ResourceList{
+				v1.ResourceStorage: *pvc.Spec.Resources.Requests.Storage(),
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	var envVars = []v1.EnvVar{}
+
+	var store v1alpha1.MongoDBBackupStore
+
+	store.Name = restoreCr.Spec.BackupStoreRef.Name
+	if restoreCr.Spec.BackupStoreRef.Namespace != "" {
+		store.Namespace = restoreCr.Spec.BackupStoreRef.Namespace
+	} else {
+		store.Namespace = restoreCr.Namespace
+	}
+
+	err = cl.Get(ctx, client.ObjectKeyFromObject(&store), &store)
+	if err != nil {
+		return nil, err
+	}
+
+	envVars = append(envVars, []v1.EnvVar{
+		getEnvVar("AWS_ENDPOINT_URL_S3", store.Spec.S3.Endpoint),
+		getEnvVar("AWS_REGION", store.Spec.S3.Region),
+		getEnvVarFromSecret("AWS_ACCESS_KEY_ID", store.Spec.S3.SecretRef.Name, store.Spec.S3.SecretRef.Mappings.AccessKeyID.Key),
+		getEnvVarFromSecret("AWS_SECRET_ACCESS_KEY", store.Spec.S3.SecretRef.Name, store.Spec.S3.SecretRef.Mappings.SecretAccessKey.Key),
+		getEnvVar("BUCKET", store.Spec.S3.Bucket),
+		getEnvVar("S3_PATH", restoreCr.Spec.S3Path),
+	}...)
+
+	secretName := accessRequest.Spec.SecretName
+	if secretName == "" {
+		secretName = accessRequest.Name
+	}
+
+	mongoEnvVars := []v1.EnvVar{
+		getEnvVarFromSecret("MONGODB_URI", secretName, "connectionString"),
+		getEnvVar("DATABASE", restoreCr.Spec.Database),
+	}
+
+	envVars = append(envVars, mongoEnvVars...)
+
+	jobEnvVars := append(envVars,
+		getEnvVar("NO_VERIFY_SSL", "true"),
+	)
+
+	var job = batchv1.Job{}
+
+	job.Name = restoreCr.Name
+	job.Namespace = restoreCr.Namespace
+
+	_, err = reconciler.CreateOrPatch(ctx, cl, restoreCr, &job, func() error {
+		container := v1.Container{
+			Image:           image,
+			ImagePullPolicy: v1.PullIfNotPresent,
+			Args:            []string{"restore"},
+			Name:            restoreCr.Name,
+			Env:             jobEnvVars,
+			VolumeMounts: []v1.VolumeMount{
+				{
+					Name:      "backup-storage",
+					MountPath: "/backups",
+				},
+			},
+		}
+
+		job.Spec.Template.Spec.Containers = []v1.Container{container}
+		job.Spec.Template.Spec.Volumes = []v1.Volume{
+			{
+				Name: "backup-storage",
+				VolumeSource: v1.VolumeSource{
+					PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+						ClaimName: pvc.Name,
+					},
+				},
+			},
+		}
+
+		job.Spec.Template.Spec.RestartPolicy = v1.RestartPolicyNever
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &job, nil
 }

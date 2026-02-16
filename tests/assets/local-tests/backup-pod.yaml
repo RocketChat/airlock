@@ -24,7 +24,7 @@ spec:
         - name: BACKUP_NAME
           value: "manual-backup"
         - name: S3_BUCKET
-          value: ""
+          value: "backups"
         - name: S3_PREFIX
           value: "mongodb-backups"
       volumeMounts:
