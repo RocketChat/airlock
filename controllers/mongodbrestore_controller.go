@@ -21,6 +21,7 @@ import (
 	"github.com/RocketChat/airlock/internal/conditions"
 	"github.com/RocketChat/airlock/internal/config"
 	internalerrors "github.com/RocketChat/airlock/internal/errors"
+	"github.com/RocketChat/portmaster-v2/pkg/manifest"
 )
 
 type MongoDBRestoreReconciler struct {
@@ -91,7 +92,7 @@ func (r *MongoDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		bucket, region, accessKeyId, secretAccessKey, _ := getS3PropertiesFromSecret(bucketSecret)
 
 		logger.Info("getting volume size from destination bucket manifest")
-		size, err := getVolumeSizeFromDestinationBucketManifest(ctx, bucket, restore.Spec.Prefix, region, accessKeyId, secretAccessKey, "database.manifest.json") // TODO: move constants to pkg upstream
+		size, err := getVolumeSizeFromDestinationBucketManifest(ctx, bucket, restore.Spec.Prefix, region, accessKeyId, secretAccessKey, manifest.DatabaseManifestName)
 		if err != nil {
 			err := fmt.Errorf("failed to get volume size from destination bucket manifest: %w", err)
 			errors.Append(err)
