@@ -111,7 +111,6 @@ spec:
                   credentials.
                 type: string
               optionsTemplate:
-                default: ?replicaSet=rs01
                 description: Extra connection string parameters that will be added
                   to the connection string.
                 type: string

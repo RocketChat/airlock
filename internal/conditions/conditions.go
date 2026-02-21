@@ -7,123 +7,144 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	"github.com/RocketChat/airlock/api/v1alpha1"
-	"github.com/RocketChat/airlock/internal/rules"
 )
 
 type ConditionsManager struct {
 	conditions   *[]metav1.Condition
-	object       v1alpha1.Object2
-	phaseRules   []rules.PhaseRule
+	object       client.Object
 	statusClient client.StatusClient
+	// fills later since do not need to clone unless needed
+	baseObject client.Object
 }
 
 // we only set status of objects we own, therefore justified to use a different interface than client.Object
 // which means we miss out on core resources
-func NewManager(statusClient client.StatusClient, conditions *[]metav1.Condition, object v1alpha1.Object2, rules []rules.PhaseRule) *ConditionsManager {
+func NewManager(statusClient client.StatusClient, object client.Object, conditions *[]metav1.Condition) *ConditionsManager {
 	return &ConditionsManager{
 		conditions:   conditions,
 		object:       object,
-		phaseRules:   rules,
 		statusClient: statusClient,
 	}
 }
 
-type Condition struct {
-	Type    string
-	Status  metav1.ConditionStatus
-	Reason  string
-	Message string
+type condition struct {
+	conditionType   string
+	conditionStatus metav1.ConditionStatus
+	reason          string
+	message         string
 }
 
-func (m *ConditionsManager) SetConditions(ctx context.Context, conditions []Condition) error {
-	logger := log.FromContext(ctx)
+func NewCondition(conditionType string, conditionStatus metav1.ConditionStatus, reason, message string) condition {
+	return condition{
+		conditionType:   conditionType,
+		conditionStatus: conditionStatus,
+		reason:          reason,
+		message:         message,
+	}
+}
 
-	base := m.object.DeepCopyObject().(client.Object)
+// setCondition sets a condition but doens't patch it, returns if condition changed or not
+func (m *ConditionsManager) setCondition(conditionType string, conditionStatus metav1.ConditionStatus, reason, message string) (changed bool) {
+	// switches if transitioning
+	changed = false
 
-	changed := false
+	if m.conditions == nil {
+		return
+	}
 
+	newCondition := metav1.Condition{
+		Type:               conditionType,
+		Status:             conditionStatus,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: metav1.Now(),
+		ObservedGeneration: m.object.GetGeneration(),
+	}
+
+	existingCondition := meta.FindStatusCondition(*m.conditions, conditionType)
+	if existingCondition == nil {
+		changed = true
+		m.deepCopyBaseObjectOnce()
+		*m.conditions = append(*m.conditions, newCondition)
+	} else if existingCondition.Status != newCondition.Status {
+		changed = true
+		m.deepCopyBaseObjectOnce()
+
+		existingCondition.Status = newCondition.Status
+		existingCondition.LastTransitionTime = newCondition.LastTransitionTime
+		existingCondition.Reason = newCondition.Reason
+		existingCondition.Message = newCondition.Message
+		existingCondition.ObservedGeneration = newCondition.ObservedGeneration
+	}
+
+	return
+}
+
+func (m *ConditionsManager) SetConditions(ctx context.Context, conditions ...condition) (changed bool, err error) {
 	for _, condition := range conditions {
-		changed = meta.SetStatusCondition(m.conditions, metav1.Condition{
-			Type:               condition.Type,
-			Status:             condition.Status,
-			Reason:             condition.Reason,
-			Message:            condition.Message,
-			LastTransitionTime: metav1.Now(),
-			ObservedGeneration: m.object.GetGeneration(),
-		})
-
-		if changed {
-			logger.Info("status condition updated", "condition", condition.Type, "status", condition.Status, "reason", condition.Reason, "message", condition.Message, "phase", m.object.GetPhase())
-		}
+		changed = changed || m.setCondition(condition.conditionType, condition.conditionStatus, condition.reason, condition.message)
 	}
 
 	if changed {
-		ruleMatched := false
-
-		// recompute phase, since a condition status has changed
-		for _, rule := range m.phaseRules {
-			if rule.Satisfies(m.conditions) {
-				m.object.SetPhase(rule.Phase())
-				ruleMatched = true
-				break
-			}
+		err = m.patchStatus(ctx)
+		if err != nil {
+			return
 		}
-
-		if !ruleMatched {
-			m.object.SetPhase(rules.PhaseUnknown)
-		}
-
-		// mark as spec observed and processed
-		m.object.SetObservedGeneration(m.object.GetGeneration())
-
-		return m.statusClient.Status().Patch(ctx, m.object, client.MergeFrom(base))
 	}
+
+	return
+}
+
+func (m *ConditionsManager) SetCondition(ctx context.Context, conditionType string, conditionStatus metav1.ConditionStatus, reason, message string) (changed bool, err error) {
+	logger := log.FromContext(ctx)
+
+	changed = m.setCondition(conditionType, conditionStatus, reason, message)
+
+	if changed {
+		logger.Info("status condition updated", "condition", conditionType, "status", conditionStatus, "reason", reason, "message", message)
+
+		err = m.patchStatus(ctx)
+
+		return
+	}
+
+	return
+}
+
+func (m *ConditionsManager) deepCopyBaseObjectOnce() {
+	if m.baseObject != nil {
+		return
+	}
+
+	m.baseObject = deepCopy(m.object)
+}
+
+func (m *ConditionsManager) patchStatus(ctx context.Context) error {
+	err := m.statusClient.Status().Patch(ctx, m.object, client.MergeFrom(m.baseObject))
+	if err != nil {
+		// if errored, don't reset
+		return err
+	}
+
+	m.baseObject = nil // reset
 
 	return nil
 }
 
-func (m *ConditionsManager) SetCondition(ctx context.Context, conditionType string, status metav1.ConditionStatus, reason, message string) error {
-	logger := log.FromContext(ctx)
-
+func deepCopy(object client.Object) client.Object {
 	/*
 	* https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/client#Object
 	* For example, nearly all the built-in types are Objects, as well as all KubeBuilder-generated CRDs (unless you do something real funky to them).
 	* By and large, most things that implement runtime.Object also implement Object -- it's very rare to have *just* a runtime.Object implementation (the cases tend to be funky built-in types like Webhook payloads that don't have a `metadata` field).
 	 */
-	base := m.object.DeepCopyObject().(client.Object)
+	return object.DeepCopyObject().(client.Object)
+}
 
-	if meta.SetStatusCondition(m.conditions, metav1.Condition{
-		Type:               conditionType,
-		Status:             status,
-		Reason:             reason,
-		Message:            message,
-		LastTransitionTime: metav1.Now(),
-		ObservedGeneration: m.object.GetGeneration(),
-	}) {
-		ruleMatched := false
-
-		// recompute phase, since a condition status has changed
-		for _, rule := range m.phaseRules {
-			if rule.Satisfies(m.conditions) {
-				m.object.SetPhase(rule.Phase())
-				ruleMatched = true
-				break
-			}
-		}
-
-		if !ruleMatched {
-			m.object.SetPhase(rules.PhaseUnknown)
-		}
-
-		// mark as spec observed and processed
-		m.object.SetObservedGeneration(m.object.GetGeneration())
-
-		logger.Info("status condition updated", "condition", conditionType, "status", status, "reason", reason, "message", message, "phase", m.object.GetPhase())
-
-		return m.statusClient.Status().Patch(ctx, m.object, client.MergeFrom(base))
+func (m *ConditionsManager) IsConditionTrueAndValid(conditionType string) bool {
+	condition := meta.FindStatusCondition(*m.conditions, conditionType)
+	if condition == nil {
+		return false
 	}
 
-	return nil
+	return condition.Status == metav1.ConditionTrue && condition.ObservedGeneration == m.object.GetGeneration()
 }

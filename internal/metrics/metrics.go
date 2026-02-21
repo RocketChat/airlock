@@ -37,15 +37,6 @@ var (
 		[]string{"controller"},
 	)
 
-	BackupStoreTotal = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: subsystemBackup,
-			Name:      "backup_store_total",
-			Help:      "Number of MongoDBBackupStore resources",
-		},
-		[]string{"namespace", "name"},
-	)
-
 	BackupTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: subsystemBackup,
@@ -54,9 +45,7 @@ var (
 		},
 		// cluster = which MongoDBCluster resource this bbackup belongs to
 		// database self explanatory
-		// schedule, if belongs to a schedule
-		// value is mapped to phase
-		[]string{"namespace", "name", "cluster", "database", "schedule", "phase"},
+		[]string{"namespace", "name", "cluster", "database"},
 	)
 
 	BackupScheduleBackupCreatedTotal = prometheus.NewGaugeVec(
@@ -68,13 +57,13 @@ var (
 		[]string{"namespace", "name", "cluster", "database"}, // value is number of backups
 	)
 
-	BackupScheduleStatus = prometheus.NewGaugeVec(
+	BackupScheduleTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: subsystemBackup,
-			Name:      "backup_schedule_status",
-			Help:      "Status of a MongoDBBackupSchedule",
+			Name:      "backup_schedule_total",
+			Help:      "Number of MongoDBBackupSchedule resources",
 		},
-		[]string{"namespace", "name", "cluster", "database", "phase"},
+		[]string{"namespace", "name", "cluster", "database"},
 	)
 )
 
@@ -83,9 +72,8 @@ func init() {
 		ControllerErrorCounter,
 		ControllerSuccessCounter,
 		ControllerReconcileDuration,
-		BackupStoreTotal,
 		BackupTotal,
 		BackupScheduleBackupCreatedTotal,
-		BackupScheduleStatus,
+		BackupScheduleTotal,
 	)
 }

@@ -38,7 +38,12 @@ spec:
           spec:
             description: MongoDBBackupSpec defines the desired state of MongoDBBackup
             properties:
-              backupStoreRef:
+              cluster:
+                type: string
+              database:
+                type: string
+              destinationBucketSecretRef:
+                description: bucket region accessKeyId secretAccessKey
                 properties:
                   name:
                     type: string
@@ -47,27 +52,16 @@ spec:
                 required:
                 - name
                 type: object
-              cluster:
-                type: string
-              database:
-                type: string
               encryption:
                 properties:
                   ageSecretRef:
+                    description: keys
                     properties:
-                      mapping:
-                        properties:
-                          key:
-                            type: string
-                        required:
-                        - key
-                        type: object
                       name:
                         type: string
                       namespace:
                         type: string
                     required:
-                    - mapping
                     - name
                     type: object
                   enabled:
@@ -85,16 +79,12 @@ spec:
                 items:
                   type: string
                 type: array
-              includedCollections:
-                items:
-                  type: string
-                type: array
               prefix:
                 type: string
             required:
-            - backupStoreRef
             - cluster
             - database
+            - destinationBucketSecretRef
             type: object
           status:
             description: MongoDBBackupStatus defines the observed state of MongoDBBackup
@@ -170,22 +160,15 @@ spec:
                   - type
                   type: object
                 type: array
-              observedGeneration:
-                format: int64
-                type: integer
-              phase:
-                type: string
               result:
                 properties:
-                  job:
+                  jobRef:
                     properties:
                       id:
                         type: string
                       name:
                         type: string
                     type: object
-                  path:
-                    type: string
                 type: object
               startTime:
                 format: date-time

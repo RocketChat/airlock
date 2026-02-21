@@ -4,11 +4,11 @@
 resources:
 - bases/airlock.cloud.rocket.chat_mongodbclusters.yaml
 - bases/airlock.cloud.rocket.chat_mongodbaccessrequests.yaml
+- bases/airlock.cloud.rocket.chat_mongodbbackupschedules.yaml
 - bases/airlock.cloud.rocket.chat_mongodbbackups.yaml
-- bases/airlock.cloud.rocket.chat_mongodbbackupstores.yaml
+- bases/airlock.cloud.rocket.chat_mongodbrestores.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
-patchesStrategicMerge: []
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix.
 # patches here are for enabling the conversion webhook for each CRD
 #- patches/webhook_in_mongodbclusters.yaml
@@ -24,3 +24,5 @@ patchesStrategicMerge: []
 # the following config is for teaching kustomize how to do kustomization for CRDs.
 configurations:
 - kustomizeconfig.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization

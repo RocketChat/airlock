@@ -2,14 +2,14 @@ apiVersion: airlock.cloud.rocket.chat/v1alpha1
 kind: MongoDBRestore
 metadata:
   name: test-restore
-  namespace: mongo
+  namespace: default
   labels:
     app: test-restore
 spec:
   cluster: airlock-test
-  database: sample_training
+  database: test
   dropDatabase: true
-  s3Path: test.archive
-  backupStoreRef:
-    name: mongodbbackupstore-sample
-    namespace: mongo
+  prefix: backups
+  destinationBucketSecretRef:
+    name: destination-bucket
+    namespace: default

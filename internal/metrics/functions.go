@@ -2,19 +2,6 @@ package metrics
 
 import "time"
 
-func UpdateBackupStore(namespace, name string, ready bool) {
-	var v float64 = 0
-	if ready {
-		v = 1
-	}
-
-	BackupStoreTotal.WithLabelValues(namespace, name).Set(v)
-}
-
-func RemoveBackupStore(namespace, name string) {
-	BackupStoreTotal.DeleteLabelValues(namespace, name)
-}
-
 func IncControllerError(controller string) {
 	ControllerErrorCounter.WithLabelValues(controller).Inc()
 }
@@ -27,33 +14,32 @@ func ObserveControllerReconcileDuration(controller string, duration time.Duratio
 	ControllerReconcileDuration.WithLabelValues(controller).Observe(duration.Seconds())
 }
 
-func IncBackupTotal(cluster, database, status string) {
-	BackupTotal.WithLabelValues(cluster, database, status).Inc()
+func SetBackupReady(namespace, name, cluster, database string) {
+	BackupTotal.WithLabelValues(namespace, name, cluster, database).Set(1)
 }
 
-func SetBackupForPhase(namespace, name, cluster, database, schedule, phase string) {
-	BackupTotal.WithLabelValues(namespace, name, cluster, database, schedule, phase).Set(1)
+func SetBackupNotReady(namespace, name, cluster, database string) {
+	BackupTotal.WithLabelValues(namespace, name, cluster, database).Set(0)
 }
 
-func RemoveBackupForPhase(namespace, name, cluster, database, schedule, phase string) {
-	BackupTotal.DeleteLabelValues(namespace, name, cluster, database, schedule, phase)
+// cleanup
+func RemoveBackupTotal(namespace, name, cluster, database string) {
+	BackupTotal.DeleteLabelValues(namespace, name, cluster, database)
 }
 
-func SetBackupScheduleGaugeForPhase(namespace, name, cluster, database, phase string) {
-	BackupScheduleStatus.WithLabelValues(namespace, name, cluster, database, phase).Set(1)
+// cleanup
+func RemoveBackupSchedule(namespace, name, cluster, database string) {
+	BackupScheduleTotal.DeleteLabelValues(namespace, name, cluster, database)
 }
 
-// when a schedule is deleted, or phase changes, remove the gauge
-func RemoveBackupScheduleGaugeForPhase(namespace, name, cluster, database, phase string) {
-	BackupScheduleStatus.DeleteLabelValues(namespace, name, cluster, database, phase)
-}
-
-// always goes up
-func IncBackupCreatedByScheduleGauge(namespace, name, cluster, database string) {
+func IncBackupCreatedBySchedule(namespace, name, cluster, database string) {
 	BackupScheduleBackupCreatedTotal.WithLabelValues(namespace, name, cluster, database).Inc()
 }
 
-// if schedule is deleted
-func RemoveBackupCreatedByScheduleGauge(namespace, name, cluster, database string) {
-	BackupScheduleBackupCreatedTotal.DeleteLabelValues(namespace, name, cluster, database)
+func SetBackupScheduleReady(namespace, name, cluster, database string) {
+	BackupScheduleTotal.WithLabelValues(namespace, name, cluster, database).Set(1)
+}
+
+func SetBackupScheduleNotReady(namespace, name, cluster, database string) {
+	BackupScheduleTotal.WithLabelValues(namespace, name, cluster, database).Set(0)
 }

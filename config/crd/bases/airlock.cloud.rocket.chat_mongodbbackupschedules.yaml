@@ -48,7 +48,12 @@ spec:
                 description: BackupSpec defines the template for creating MongoDBBackup
                   resources
                 properties:
-                  backupStoreRef:
+                  cluster:
+                    type: string
+                  database:
+                    type: string
+                  destinationBucketSecretRef:
+                    description: bucket region accessKeyId secretAccessKey
                     properties:
                       name:
                         type: string
@@ -57,27 +62,16 @@ spec:
                     required:
                     - name
                     type: object
-                  cluster:
-                    type: string
-                  database:
-                    type: string
                   encryption:
                     properties:
                       ageSecretRef:
+                        description: keys
                         properties:
-                          mapping:
-                            properties:
-                              key:
-                                type: string
-                            required:
-                            - key
-                            type: object
                           name:
                             type: string
                           namespace:
                             type: string
                         required:
-                        - mapping
                         - name
                         type: object
                       enabled:
@@ -95,35 +89,17 @@ spec:
                     items:
                       type: string
                     type: array
-                  includedCollections:
-                    items:
-                      type: string
-                    type: array
                   prefix:
                     type: string
                 required:
-                - backupStoreRef
                 - cluster
                 - database
+                - destinationBucketSecretRef
                 type: object
-              failedJobsHistoryLimit:
-                default: 1
-                description: FailedJobsHistoryLimit is the number of failed backup
-                  jobs to keep
-                format: int32
-                minimum: 0
-                type: integer
               schedule:
                 description: Schedule is a cron expression defining when backups should
                   run
                 type: string
-              successfulJobsHistoryLimit:
-                default: 3
-                description: SuccessfulJobsHistoryLimit is the number of successful
-                  backup jobs to keep
-                format: int32
-                minimum: 0
-                type: integer
               suspend:
                 default: false
                 description: Suspend suspends the schedule if true
@@ -136,12 +112,6 @@ spec:
             description: MongoDBBackupScheduleStatus defines the observed state of
               MongoDBBackupSchedule
             properties:
-              activeBackups:
-                description: ActiveBackups is a list of active backup names created
-                  by this schedule
-                items:
-                  type: string
-                type: array
               conditions:
                 description: Conditions represent the latest available observations
                   of the schedule's state
@@ -226,19 +196,6 @@ spec:
               lastFailureTime:
                 description: LastFailureTime is the time of the last failed backup
                 format: date-time
-                type: string
-              observedGeneration:
-                description: ObservedGeneration is the generation of the schedule
-                  that was last processed by the controller
-                format: int64
-                minimum: 0
-                type: integer
-              phase:
-                description: Phase indicates the overall status of the schedule
-                enum:
-                - Running
-                - Pending
-                - Failed
                 type: string
             type: object
         type: object

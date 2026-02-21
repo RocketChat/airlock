@@ -19,7 +19,6 @@ package main
 import (
 	"flag"
 	"os"
-	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -35,6 +34,7 @@ import (
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
 	"github.com/RocketChat/airlock/controllers"
+	"github.com/RocketChat/airlock/internal/config"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -54,16 +54,26 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var configPath string
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":9443", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&configPath, "config", "config.yaml", "The path to the config file.")
+
 	opts := zap.Options{
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		setupLog.Error(err, "unable to load config")
+		os.Exit(1)
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
@@ -109,18 +119,9 @@ func main() {
 	if err = (&controllers.MongoDBBackupReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		Config: cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MongoDBBackup")
-		os.Exit(1)
-	}
-
-	if err = (&controllers.MongoDBBackupStoreReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		Name:        airlockv1alpha1.MongoDBBackupStoreControllerName,
-		Development: strings.ToLower(os.Getenv("DEV_MODE")) == "true",
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MongoDBBackupStore")
 		os.Exit(1)
 	}
 
@@ -135,7 +136,7 @@ func main() {
 	if err = (&controllers.MongoDBRestoreReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-		Name:   airlockv1alpha1.MongoDBRestoreControllerName,
+		Config: cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MongoDBRestore")
 		os.Exit(1)

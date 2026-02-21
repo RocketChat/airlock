@@ -16,8 +16,8 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.phase
-      name: Phase
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
       type: string
     name: v1alpha1
     schema:
@@ -38,7 +38,12 @@ spec:
           spec:
             description: MongoDBRestoreSpec defines the desired state of MongoDBRestore
             properties:
-              backupStoreRef:
+              cluster:
+                type: string
+              database:
+                type: string
+              destinationBucketSecretRef:
+                description: bucket region accessKeyId secretAccessKey
                 properties:
                   name:
                     type: string
@@ -47,19 +52,14 @@ spec:
                 required:
                 - name
                 type: object
-              cluster:
-                type: string
-              database:
-                type: string
               dropDatabase:
                 type: boolean
-              s3Path:
+              prefix:
                 type: string
             required:
-            - backupStoreRef
             - cluster
             - database
-            - s3Path
+            - destinationBucketSecretRef
             type: object
           status:
             description: MongoDBRestoreStatus defines the observed state of MongoDBRestore
@@ -135,15 +135,10 @@ spec:
                   - type
                   type: object
                 type: array
-              observedGeneration:
-                format: int64
-                type: integer
-              phase:
-                type: string
               result:
                 description: MongoDBRestoreStatusResult defines the result of a restore
                 properties:
-                  job:
+                  jobRef:
                     description: MongoDBRestoreStatusJob references the restore job
                     properties:
                       id:

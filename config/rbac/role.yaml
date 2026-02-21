@@ -52,6 +52,14 @@ rules:
   - watch
 - apiGroups:
   - ""
+  resources:
+  - storageclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
   - apps
   - networking.k8s.io
   resources:
@@ -146,32 +154,6 @@ rules:
   - airlock.cloud.rocket.chat
   resources:
   - mongodbbackupstores
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - airlock.cloud.rocket.chat
-  resources:
-  - mongodbbackupstores/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - airlock.cloud.rocket.chat
-  resources:
-  - mongodbbackupstores/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - airlock.cloud.rocket.chat
-  resources:
-  - mongodbbackupstorestores
   verbs:
   - get
   - list

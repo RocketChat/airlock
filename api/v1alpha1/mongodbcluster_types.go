@@ -36,7 +36,6 @@ type MongoDBClusterSpec struct {
 	HostTemplate string `json:"hostTemplate"` // Obs: no omitempty here to make it required. (the annotation above refuses to work on this particular field for some reason)
 
 	// Extra connection string parameters that will be added to the connection string.
-	// +kubebuilder:default=?replicaSet=rs01
 	OptionsTemplate string `json:"optionsTemplate,omitempty"`
 
 	// The prefix used when building the connection string. Defaults to "mongodb"

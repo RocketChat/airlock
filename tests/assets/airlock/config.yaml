@@ -1,0 +1,6 @@
+development: true
+backupConfig:
+  # image: rocketchat/portmaster:00d1a8282094cbfffafca03d2059fcd65d6b5ad4
+  image: portmaster-v2:local
+  splitSize: 100Mi
+  ignoreTls: true

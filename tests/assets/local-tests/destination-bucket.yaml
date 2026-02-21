@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: destination-bucket
+  namespace: default
+type: Opaque
+stringData:
+  accessKeyId: ${DESTINATION_BUCKET_ACCESS_KEY_ID}
+  secretAccessKey: ${DESTINATION_BUCKET_SECRET_ACCESS_KEY}
+  region: ${DESTINATION_BUCKET_REGION}
+  bucket: ${DESTINATION_BUCKET}

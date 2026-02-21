@@ -1,22 +1,33 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: portmaster
+  name: portmaster-backup
   namespace: default
   labels:
-    app: portmaster
+    app: portmaster-backup
 spec:
   restartPolicy: Never
   containers:
     - name: portmaster
-      image: rocketchat/portmaster:1ef2c70b996de6229f49ce54da98aa7d83d553c1 
+      # image: rocketchat/portmaster:00d1a8282094cbfffafca03d2059fcd65d6b5ad4
+      image: portmaster-v2:local
       imagePullPolicy: IfNotPresent
-      command:
-        - sleep
-        - 1d
+      args:
+        - backup
+        - --log-format=pretty
+        - -u
+        - -d
+        - --split=true
+        - --chunk=100Mi
+        - -r
+        - backups
+        - /backups
       env:
         - name: DATABASE_URI
-          value: "mongodb://mongo.mongo.svc.cluster.local:27017"
+          valueFrom:
+            secretKeyRef:
+              name: portmaster-mongodb-access-request
+              key: connectionString
         - name: DATABASE_NAME
           value: "test"
         - name: DESTINATION_BUCKET

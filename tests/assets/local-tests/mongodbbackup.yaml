@@ -2,23 +2,12 @@ apiVersion: airlock.cloud.rocket.chat/v1alpha1
 kind: MongoDBBackup
 metadata:
   name: test-backup
-  namespace: mongo
-  labels:
-    app: test-backup
+  namespace: default
 spec:
-  cluster: "airlock-test"
-  database: "sample_training"
+  cluster: airlock-test
+  database: test
   excludedCollections: []
-  includedCollections: []
-  prefix: haha
-  backupStoreRef:
-    name: mongodbbackupstore-sample
-    namespace: "mongo"
-  encrypt:
-    enabled: true
-    engine: age
-    ageSecretRef:
-      name: age-encryption-key
-      namespace: mongo
-      mapping:
-        key: age-key
+  prefix: backups
+  destinationBucketSecretRef:
+    name: destination-bucket
+    namespace: default

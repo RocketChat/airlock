@@ -37,7 +37,12 @@ func (e *AggregateError) Error() string {
 }
 
 func (e *AggregateError) Is(target error) bool {
-	return e.Aggregate().Is(target)
+	aggregate := e.Aggregate()
+	if aggregate == nil {
+		return false
+	}
+
+	return aggregate.Is(target)
 }
 
 func (e *AggregateError) IfExists() error {
