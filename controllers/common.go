@@ -274,5 +274,5 @@ func getVolumeSizeFromDestinationBucketManifest(ctx context.Context, bucket, pre
 		return 0, err
 	}
 
-	return m.Size, nil
+	return m.EstimatedDiskUsage(), nil
 }

@@ -67,8 +67,6 @@ func (r *MongoDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	logger.Info("reconciling restore", "name", req.NamespacedName)
 
-	r.statusMgr = conditions.NewManager(r.Client, restore, &restore.Status.Conditions)
-
 	var (
 		accessRequest *airlockv1alpha1.MongoDBAccessRequest
 		bucketSecret  *v1.Secret
@@ -88,6 +86,7 @@ func (r *MongoDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			_, err2 := r.statusMgr.SetCondition(ctx, airlockv1alpha1.ConditionReady, metav1.ConditionFalse, EventReasonDestinationBucketInvalid, err.Error())
 			return ctrl.Result{}, errors.Append(err, err2)
 		}
+		logger.Info("destination bucket valid")
 
 		bucket, region, accessKeyId, secretAccessKey, _ := getS3PropertiesFromSecret(bucketSecret)
 
