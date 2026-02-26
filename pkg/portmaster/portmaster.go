@@ -536,7 +536,8 @@ func (p *portmasterRunner) getPodSpec() *corev1.PodSpec {
 		},
 	}
 	podSpec := &corev1.PodSpec{
-		Containers: []v1.Container{container},
+		RestartPolicy: corev1.RestartPolicyNever,
+		Containers:    []v1.Container{container},
 		Volumes: []v1.Volume{
 			{
 				Name: mountName,
@@ -551,7 +552,7 @@ func (p *portmasterRunner) getPodSpec() *corev1.PodSpec {
 	return podSpec
 }
 
-func (p *portmasterRunner) createJob(ctx context.Context, podTemplateSpec *corev1.PodSpec) (*batchv1.Job, error) {
+func (p *portmasterRunner) createJob(ctx context.Context, podSpec *corev1.PodSpec) (*batchv1.Job, error) {
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      p.name,
@@ -559,7 +560,7 @@ func (p *portmasterRunner) createJob(ctx context.Context, podTemplateSpec *corev
 		},
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
-				Spec: *podTemplateSpec,
+				Spec: *podSpec,
 			},
 		},
 	}
