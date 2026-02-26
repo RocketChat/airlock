@@ -15,10 +15,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
-	"github.com/RocketChat/airlock/internal/conditions"
 	internalerrors "github.com/RocketChat/airlock/internal/errors"
 	"github.com/RocketChat/airlock/internal/metrics"
 	"github.com/RocketChat/airlock/internal/scheduler"
+	"github.com/RocketChat/airlock/pkg/conditions"
 	"github.com/RocketChat/airlock/pkg/reconciler"
 )
 

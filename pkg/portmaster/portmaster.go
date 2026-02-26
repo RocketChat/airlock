@@ -125,7 +125,7 @@ func NewPortmasterRunner(ctx context.Context, fn ...OptionProvider) PortmasterRe
 		fn(options)
 	}
 
-	logger := log.FromContext(ctx)
+	logger := log.FromContext(ctx).WithValues("component", "portmaster")
 
 	return &portmasterRunner{
 		options:   options,
@@ -384,10 +384,10 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 		p.logger.Info("pvc reconciled")
 	}
 
-	podTemplateSpec := p.getPodTemplateSpec()
+	podSpec := p.getPodSpec()
 
 	if existingJob != nil &&
-		!apiequality.Semantic.DeepDerivative(podTemplateSpec.Spec, existingJob.Spec.Template.Spec) {
+		!apiequality.Semantic.DeepDerivative(podSpec, existingJob.Spec.Template.Spec) {
 		p.logger.Info("pod template spec has changed, deleting existing job")
 		if err := reconciler.Delete(
 			ctx,
@@ -407,7 +407,7 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 		return Requeue(), nil
 	} else if existingJob == nil {
 		p.logger.Info("creating new job")
-		_, err = p.createJob(ctx, podTemplateSpec)
+		_, err = p.createJob(ctx, podSpec)
 		if err != nil {
 			return nil, NewRuntimeError(err)
 		}
@@ -457,7 +457,7 @@ func (p *portmasterRunner) cliArgs() []string {
 	return args
 }
 
-func (p *portmasterRunner) getPodTemplateSpec() *corev1.PodTemplateSpec {
+func (p *portmasterRunner) getPodSpec() *corev1.PodSpec {
 	env := []v1.EnvVar{
 		{
 			Name: "DATABASE_URI",
@@ -535,33 +535,32 @@ func (p *portmasterRunner) getPodTemplateSpec() *corev1.PodTemplateSpec {
 			},
 		},
 	}
-	podTemplateSpec := &corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			Containers: []v1.Container{container},
-			Volumes: []v1.Volume{
-				{
-					Name: mountName,
-					VolumeSource: v1.VolumeSource{
-						PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
-							ClaimName: p.name,
-						},
+	podSpec := &corev1.PodSpec{
+		Containers: []v1.Container{container},
+		Volumes: []v1.Volume{
+			{
+				Name: mountName,
+				VolumeSource: v1.VolumeSource{
+					PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+						ClaimName: p.name,
 					},
 				},
 			},
-			RestartPolicy: v1.RestartPolicyNever,
 		},
 	}
-	return podTemplateSpec
+	return podSpec
 }
 
-func (p *portmasterRunner) createJob(ctx context.Context, podTemplateSpec *corev1.PodTemplateSpec) (*batchv1.Job, error) {
+func (p *portmasterRunner) createJob(ctx context.Context, podTemplateSpec *corev1.PodSpec) (*batchv1.Job, error) {
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      p.name,
 			Namespace: p.namespace,
 		},
 		Spec: batchv1.JobSpec{
-			Template: *podTemplateSpec,
+			Template: corev1.PodTemplateSpec{
+				Spec: *podTemplateSpec,
+			},
 		},
 	}
 
