@@ -9,16 +9,45 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var ErrReconcilerInvalidOptions = fmt.Errorf("invalid options")
 
+func updateObjectGVK(object client.Object, scheme *runtime.Scheme) error {
+	gvk := object.GetObjectKind().GroupVersionKind()
+	if !gvk.Empty() {
+		return nil
+	}
+
+	gvk, err := apiutil.GVKForObject(object, scheme)
+	if err != nil {
+		return err
+	}
+
+	object.GetObjectKind().SetGroupVersionKind(gvk)
+
+	return nil
+}
+
 func wrapInReconcilerError(err error) error {
 	return fmt.Errorf("reconciler error: %w, %w", ErrReconcilerInvalidOptions, err)
+}
+
+func operationResultToString(result controllerutil.OperationResult) string {
+	switch result {
+	case controllerutil.OperationResultCreated:
+		return "Created"
+	case controllerutil.OperationResultUpdated:
+		return "Updated"
+	default:
+		return "Unknown"
+	}
 }
 
 func reason(object client.Object, result controllerutil.OperationResult, err error) string {
@@ -28,20 +57,15 @@ func reason(object client.Object, result controllerutil.OperationResult, err err
 		return fmt.Sprintf("%sReconcileFailed", kind)
 	}
 
-	switch result {
-	case controllerutil.OperationResultCreated:
-		return fmt.Sprintf("%sCreated", kind)
-	case controllerutil.OperationResultUpdated:
-		return fmt.Sprintf("%sUpdated", kind)
-	default:
-		return fmt.Sprintf("%sUnknown", kind)
-	}
+	return fmt.Sprintf("%s%s", kind, operationResultToString(result))
 }
 
-func recordEvent(r record.EventRecorder, owner client.Object, object client.Object, result controllerutil.OperationResult, err error) {
+func recordEvent(c client.Client, r record.EventRecorder, owner client.Object, object client.Object, result controllerutil.OperationResult, err error) {
 	if result == controllerutil.OperationResultNone {
 		return
 	}
+
+	updateObjectGVK(object, c.Scheme())
 
 	eventReason := reason(object, result, err)
 
@@ -67,12 +91,12 @@ func CreateOrUpdate(ctx context.Context, object client.Object, mutateFn controll
 
 	result, err := controllerutil.CreateOrUpdate(ctx, c, object, mutateFn)
 	if err != nil {
-		recordEvent(r, owner, object, result, err)
+		recordEvent(c, r, owner, object, result, err)
 
 		return controllerutil.OperationResultNone, err
 	}
 
-	recordEvent(r, owner, object, result, nil)
+	recordEvent(c, r, owner, object, result, nil)
 
 	return result, nil
 }
@@ -90,12 +114,12 @@ func CreateOrPatch(ctx context.Context, object client.Object, mutateFn controlle
 
 	result, err := controllerutil.CreateOrPatch(ctx, c, object, mutateFn)
 	if err != nil {
-		recordEvent(r, owner, object, result, err)
+		recordEvent(c, r, owner, object, result, err)
 
 		return controllerutil.OperationResultNone, err
 	}
 
-	recordEvent(r, owner, object, result, nil)
+	recordEvent(c, r, owner, object, result, nil)
 
 	return result, nil
 }
@@ -114,12 +138,40 @@ func Create(ctx context.Context, object client.Object, o *Option) error {
 
 	err := c.Create(ctx, object)
 	if err != nil {
-		recordEvent(r, owner, object, controllerutil.OperationResultNone, err)
+		recordEvent(c, r, owner, object, controllerutil.OperationResultNone, err)
 
 		return err
 	}
 
-	recordEvent(r, owner, object, controllerutil.OperationResultCreated, nil)
+	recordEvent(c, r, owner, object, controllerutil.OperationResultCreated, nil)
+
+	return nil
+}
+
+func Delete(ctx context.Context, object client.Object, o *Option) error {
+	var (
+		owner = o.Owner
+		c     = o.Client
+		r     = o.Recorder
+	)
+
+	ownedByUs, err := IsOwnedBy(ctx, c, owner, object)
+	if err != nil {
+		return fmt.Errorf("failed to check if object %s/%s is owned by us: %w", object.GetNamespace(), object.GetName(), err)
+	}
+
+	if !ownedByUs {
+		return fmt.Errorf("object %s/%s is not owned by us, refusing to delete", object.GetNamespace(), object.GetName())
+	}
+
+	_ = updateObjectGVK(object, c.Scheme())
+
+	err = client.IgnoreNotFound(c.Delete(ctx, object))
+	if err != nil {
+		return fmt.Errorf("failed to delete object %s/%s: %w", object.GetNamespace(), object.GetName(), err)
+	}
+
+	r.Eventf(owner, corev1.EventTypeNormal, fmt.Sprintf("%sDeleted", object.GetObjectKind().GroupVersionKind().Kind), "object %s/%s deleted", object.GetNamespace(), object.GetName())
 
 	return nil
 }
@@ -133,7 +185,7 @@ const (
 	EventReasonAccessRequestNotReady = "MongoDBAccessRequestNotReady"
 )
 
-func ReconcileAccessRequest(ctx context.Context, name, namespace, cluster, database string, waitForReady func(context.Context, client.Object) error, o *Option) (*airlockv1alpha1.MongoDBAccessRequest, error) {
+func ReconcileAccessRequest(ctx context.Context, name, namespace, cluster, database string, secretName string, waitForReady func(context.Context) error, o *Option) (*airlockv1alpha1.MongoDBAccessRequest, controllerutil.OperationResult, error) {
 	var (
 		owner = o.Owner
 		r     = o.Recorder
@@ -150,44 +202,46 @@ func ReconcileAccessRequest(ctx context.Context, name, namespace, cluster, datab
 		accessRequest.Spec.ClusterName = cluster
 		accessRequest.Spec.Database = database
 		accessRequest.Spec.UserName = name + "-user"
-		accessRequest.Spec.SecretName = name + "-mongodb-access-secret"
+		if secretName != "" {
+			accessRequest.Spec.SecretName = secretName
+		}
 		return nil
 	}, o)
 
 	if err != nil {
 		logger.Error(err, "failed to reconcile access request")
 
-		return nil, err
+		return nil, result, err
 	}
 
 	if result == controllerutil.OperationResultNone {
 		ownedByUs, err := IsOwnedBy(ctx, c, owner, &accessRequest)
 		if err != nil {
-			return nil, err
+			return nil, result, err
 		}
 
 		if ownedByUs {
 			// nothing changed and owned
 			// no need to wait for it to be ready, caller should check
-			return &accessRequest, nil
+			return &accessRequest, result, nil
 		}
 
 		r.Eventf(owner, corev1.EventTypeWarning, EventReasonAccessRequestNotOwned, "access request %s is not owned by us, proceeding with caution", accessRequest.Name)
 	}
 
 	if waitForReady != nil {
-		if err := waitForReady(ctx, &accessRequest); err != nil {
+		if err := waitForReady(ctx); err != nil {
 			err := fmt.Errorf("failed to wait for access request to be ready: %w", err)
 
 			logger.Error(err, "failed to wait for access request to be ready")
 
 			r.Event(owner, corev1.EventTypeWarning, EventReasonAccessRequestNotReady, err.Error())
 
-			return nil, err
+			return nil, result, err
 		}
 	}
 
-	return &accessRequest, nil
+	return &accessRequest, result, nil
 }
 
 const (
@@ -197,7 +251,7 @@ const (
 	EventReasonPersistentVolumeClaimNotOwned     = "PersistentVolumeClaimNotOwned"
 )
 
-func ReconcilePersistentVolumeClaim(ctx context.Context, name, namespace string, size int64, o *Option) (*v1.PersistentVolumeClaim, error) {
+func ReconcilePersistentVolumeClaim(ctx context.Context, name, namespace string, request *resource.Quantity, o *Option) (*v1.PersistentVolumeClaim, controllerutil.OperationResult, error) {
 	var (
 		owner = o.Owner
 		r     = o.Recorder
@@ -217,21 +271,17 @@ func ReconcilePersistentVolumeClaim(ctx context.Context, name, namespace string,
 
 		r.Eventf(owner, corev1.EventTypeWarning, EventReasonPersistentVolumeNotFound, err2.Error())
 
-		return nil, err2
+		return nil, controllerutil.OperationResultNone, err2
 	}
 
 	// min 1g
-	requestSize := max(size, 1024*1024*1024)
-
-	requestQuantity := resource.NewQuantity(requestSize, resource.BinarySI)
-
 	pvcSpec := v1.PersistentVolumeClaimSpec{
 		AccessModes: []v1.PersistentVolumeAccessMode{
 			v1.ReadWriteOnce,
 		},
 		Resources: v1.VolumeResourceRequirements{
 			Requests: v1.ResourceList{
-				v1.ResourceStorage: *requestQuantity,
+				v1.ResourceStorage: *request,
 			},
 		},
 	}
@@ -241,42 +291,42 @@ func ReconcilePersistentVolumeClaim(ctx context.Context, name, namespace string,
 	exists := err == nil
 
 	if !exists {
-		logger.Info("pvc does not exist, creating", "name", pvc.Name, "namespace", pvc.Namespace, "size", requestQuantity.String())
+		logger.Info("pvc does not exist, creating", "name", pvc.Name, "namespace", pvc.Namespace, "size", request.String())
 		// just create it
 		pvc.Spec = pvcSpec
 
 		err := Create(ctx, pvc, o)
 		if err != nil {
-			return nil, err
+			return nil, controllerutil.OperationResultNone, err
 		}
 
-		return pvc, nil
+		return pvc, controllerutil.OperationResultCreated, nil
 	}
 
 	ownedByUs, err := IsOwnedBy(ctx, c, owner, pvc)
 	if err != nil {
-		return nil, fmt.Errorf("pvc reconciliationn failed: failed to check if pvc %s is owned by us: %w", pvc.Name, err)
+		return nil, controllerutil.OperationResultNone, fmt.Errorf("pvc reconciliationn failed: failed to check if pvc %s is owned by us: %w", pvc.Name, err)
 	}
 
-	if exisingStorage.CmpInt64(size) == -1 {
-		err := fmt.Errorf("pvc %s has a smaller size than the required size, existing: %s, required: %s", pvc.Name, exisingStorage.String(), requestQuantity.String())
+	if exisingStorage.Cmp(*request) == -1 {
+		err := fmt.Errorf("pvc %s has a smaller size than the required size, existing: %s, required: %s", pvc.Name, exisingStorage.String(), request.String())
 
 		r.Eventf(owner, corev1.EventTypeWarning, EventReasonPersistentVolumeClaimTooSmall, err.Error())
 
 		logger.Error(err, "pvc size is too small, checking if can be resized")
 
 		if pvc.Spec.StorageClassName == nil {
-			err := fmt.Errorf("pvc %s has no storage class, cannot resize, existing: %s, required: %s", pvc.Name, exisingStorage.String(), requestQuantity.String())
+			err := fmt.Errorf("pvc %s has no storage class, cannot resize, existing: %s, required: %s", pvc.Name, exisingStorage.String(), request.String())
 			r.Eventf(owner, corev1.EventTypeWarning, EventReasonPersistentVolumeClaimTooSmall, err.Error())
-			return nil, err
+			return nil, controllerutil.OperationResultNone, err
 		}
 
 		if !ownedByUs {
-			err := fmt.Errorf("cannot resize pvc %s, it is not owned by us, existing: %s, required: %s", pvc.Name, exisingStorage.String(), requestQuantity.String())
+			err := fmt.Errorf("cannot resize pvc %s, it is not owned by us, existing: %s, required: %s", pvc.Name, exisingStorage.String(), request.String())
 
 			r.Eventf(owner, corev1.EventTypeWarning, EventReasonPersistentVolumeClaimResizeFailed, err.Error())
 
-			return nil, err
+			return nil, controllerutil.OperationResultNone, err
 		}
 
 		// we only attempt to resize if the pvc is owned by us
@@ -291,26 +341,26 @@ func ReconcilePersistentVolumeClaim(ctx context.Context, name, namespace string,
 		if err2 != nil {
 			err2 := fmt.Errorf("failed to get storage class %s: %w, unable to resize pvc: %w", *pvc.Spec.StorageClassName, err2, err)
 			r.Eventf(owner, corev1.EventTypeWarning, EventReasonPersistentVolumeClaimResizeFailed, err2.Error())
-			return nil, err2
+			return nil, controllerutil.OperationResultNone, err2
 		}
 
 		if storageClass.AllowVolumeExpansion != nil || !*storageClass.AllowVolumeExpansion {
 			err2 := fmt.Errorf("storage class %s does not allow volume expansion, unable to resize pvc, unable to resize pvc: %w", *pvc.Spec.StorageClassName, err)
 			r.Eventf(owner, corev1.EventTypeWarning, EventReasonPersistentVolumeClaimResizeFailed, err2.Error())
-			return nil, err2
+			return nil, controllerutil.OperationResultNone, err2
 		}
 	} else {
 		if ownedByUs {
-			return pvc, nil
+			return pvc, controllerutil.OperationResultNone, nil
 		}
 		// size is sufficient
-		msg := fmt.Sprintf("pvc %s is not owned by us but has a sufficient size, attempting to reuse, existing: %s, required: %s", pvc.Name, exisingStorage.String(), requestQuantity.String())
+		msg := fmt.Sprintf("pvc %s is not owned by us but has a sufficient size, attempting to reuse, existing: %s, required: %s", pvc.Name, exisingStorage.String(), request.String())
 
 		logger.Info(msg)
 
 		r.Eventf(owner, corev1.EventTypeWarning, EventReasonPersistentVolumeClaimNotOwned, msg)
 
-		return pvc, nil
+		return pvc, controllerutil.OperationResultNone, nil
 	}
 
 	// conditions met:
@@ -320,15 +370,15 @@ func ReconcilePersistentVolumeClaim(ctx context.Context, name, namespace string,
 
 	base := pvc.DeepCopy()
 
-	pvc.Spec.Resources.Requests.Storage().Set(requestSize)
+	pvc.Spec.Resources.Requests.Storage().Set(request.Value())
 
 	if err := c.Patch(ctx, pvc, client.MergeFrom(base)); err != nil {
 		logger.Error(err, "failed to patch pvc")
 
 		r.Eventf(owner, corev1.EventTypeWarning, EventReasonPersistentVolumeClaimResizeFailed, err.Error())
 
-		return nil, fmt.Errorf("failed to patch pvc: %w", err)
+		return nil, controllerutil.OperationResultNone, fmt.Errorf("failed to patch pvc: %w", err)
 	}
 
-	return pvc, nil
+	return pvc, controllerutil.OperationResultUpdated, nil
 }

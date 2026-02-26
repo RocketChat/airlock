@@ -12,11 +12,11 @@ const (
 // +kubebuilder:object:generate=true
 // +k8s:deepcopy-gen=true
 type MongoDBRestoreSpec struct {
-	Cluster                    string                            `json:"cluster"`
-	Database                   string                            `json:"database"`
-	DropDatabase               bool                              `json:"dropDatabase,omitempty"`
-	DestinationBucketSecretRef MongoDBDestinationBucketSecretRef `json:"destinationBucketSecretRef"`
-	Prefix                     string                            `json:"prefix,omitempty"`
+	Cluster                string `json:"cluster"`
+	Database               string `json:"database"`
+	DropDatabase           bool   `json:"dropDatabase,omitempty"`
+	SourceBucketSecretName string `json:"sourceBucketSecretName"`
+	Prefix                 string `json:"prefix,omitempty"`
 }
 
 // MongoDBRestoreStatus defines the observed state of MongoDBRestore

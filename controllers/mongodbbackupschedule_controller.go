@@ -15,11 +15,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
-	"github.com/RocketChat/airlock/controllers/reconciler"
 	"github.com/RocketChat/airlock/internal/conditions"
 	internalerrors "github.com/RocketChat/airlock/internal/errors"
 	"github.com/RocketChat/airlock/internal/metrics"
 	"github.com/RocketChat/airlock/internal/scheduler"
+	"github.com/RocketChat/airlock/pkg/reconciler"
+)
+
+const (
+	EventReasonBackupScheduleSuspended       = "BackupScheduleSuspended"
+	EventReasonInternalTaskScheduleFailed    = "InternalTaskScheduleFailed"
+	EventReasonInternalTaskScheduleSucceeded = "InternalTaskScheduleSucceeded"
+	EventReasonBackupCreationFailed          = "BackupCreationFailed"
+	EventReasonBackupCreationSucceeded       = "BackupCreationSucceeded"
 )
 
 type MongoDBBackupScheduleReconciler struct {
@@ -87,7 +95,7 @@ func (r *MongoDBBackupScheduleReconciler) Reconcile(ctx context.Context, req ctr
 	if schedule.Spec.Suspend != nil && *schedule.Spec.Suspend {
 		log.Info("schedule is suspended, skipping further checks")
 
-		changed, err := statusMgr.SetCondition(ctx, airlockv1alpha1.ConditionReady, metav1.ConditionFalse, "ScheduleSuspended", "Schedule is suspended")
+		changed, err := statusMgr.SetCondition(ctx, airlockv1alpha1.ConditionReady, metav1.ConditionFalse, EventReasonBackupScheduleSuspended, "Schedule is suspended")
 
 		if changed {
 			r.measureBackupScheduleNotReady(schedule)
@@ -115,13 +123,10 @@ func (r *MongoDBBackupScheduleReconciler) Reconcile(ctx context.Context, req ctr
 
 			errors.Append(err)
 
-			reason := "InternalTaskScheduleFailed"
 			message := fmt.Sprintf("Internal task schedule failed, schedule changed, failed to remove existing job, id: %s", existingJob.ID())
 
-			changed, err := statusMgr.SetConditions(ctx,
-				conditions.NewCondition(airlockv1alpha1.BackupScheduleConditionInternalTaskScheduleFailed, metav1.ConditionTrue, reason, message),
-				conditions.NewCondition(airlockv1alpha1.ConditionReady, metav1.ConditionFalse, reason, message),
-			)
+			changed, err := statusMgr.SetCondition(ctx,
+				airlockv1alpha1.ConditionReady, metav1.ConditionFalse, EventReasonInternalTaskScheduleFailed, message)
 
 			if changed {
 				r.measureBackupScheduleNotReady(schedule)
@@ -149,13 +154,10 @@ func (r *MongoDBBackupScheduleReconciler) Reconcile(ctx context.Context, req ctr
 
 		errors.Append(err)
 
-		reason := "InternalTaskScheduleFailed"
 		message := fmt.Sprintf("Internal task schedule failed, failed to create new job")
 
-		changed, err := statusMgr.SetConditions(ctx,
-			conditions.NewCondition(airlockv1alpha1.BackupScheduleConditionInternalTaskScheduleFailed, metav1.ConditionTrue, reason, message),
-			conditions.NewCondition(airlockv1alpha1.ConditionReady, metav1.ConditionFalse, reason, message),
-		)
+		changed, err := statusMgr.SetCondition(ctx,
+			airlockv1alpha1.ConditionReady, metav1.ConditionFalse, EventReasonInternalTaskScheduleFailed, message)
 
 		if changed {
 			r.measureBackupScheduleNotReady(schedule)
@@ -170,13 +172,10 @@ func (r *MongoDBBackupScheduleReconciler) Reconcile(ctx context.Context, req ctr
 		if err := job.RunNow(); err != nil {
 			log.Error(err, "failed to run job now", "jobID", job.ID())
 
-			reason := "BackupCreationFailed"
 			message := fmt.Sprintf("Backup creation failed, failed to run job now, id: %s", job.ID())
 
-			changed, err := statusMgr.SetConditions(ctx,
-				conditions.NewCondition(airlockv1alpha1.BackupScheduleConditionBackupCreateFailed, metav1.ConditionTrue, reason, message),
-				conditions.NewCondition(airlockv1alpha1.ConditionReady, metav1.ConditionFalse, reason, message),
-			)
+			changed, err := statusMgr.SetCondition(ctx,
+				airlockv1alpha1.ConditionReady, metav1.ConditionFalse, EventReasonBackupCreationFailed, message)
 
 			if changed {
 				r.measureBackupScheduleNotReady(schedule)
@@ -187,10 +186,8 @@ func (r *MongoDBBackupScheduleReconciler) Reconcile(ctx context.Context, req ctr
 			return
 		}
 
-		changed, err := statusMgr.SetConditions(ctx,
-			conditions.NewCondition(airlockv1alpha1.BackupScheduleConditionBackupCreateFailed, metav1.ConditionFalse, "BackupCreationSucceeded", "Backup creation succeeded"),
-			conditions.NewCondition(airlockv1alpha1.ConditionReady, metav1.ConditionTrue, "BackupCreationSucceeded", "Backup creation succeeded"),
-		)
+		changed, err := statusMgr.SetCondition(ctx,
+			airlockv1alpha1.ConditionReady, metav1.ConditionTrue, EventReasonBackupCreationSucceeded, "Backup creation succeeded")
 		if err != nil {
 			log.Error(err, "failed to set backup creation succeeded condition", "jobID", job.ID())
 			return
@@ -201,7 +198,7 @@ func (r *MongoDBBackupScheduleReconciler) Reconcile(ctx context.Context, req ctr
 		}
 	}()
 
-	if _, err := statusMgr.SetCondition(ctx, airlockv1alpha1.BackupScheduleConditionInternalTaskScheduleFailed, metav1.ConditionFalse, "InternalTaskScheduleSucceeded", "Internal task schedule succeeded"); err != nil {
+	if _, err := statusMgr.SetCondition(ctx, airlockv1alpha1.ConditionReady, metav1.ConditionTrue, EventReasonInternalTaskScheduleSucceeded, "Internal task schedule succeeded"); err != nil {
 		return ctrl.Result{}, errors.Append(err)
 	}
 
@@ -265,13 +262,10 @@ func (r *MongoDBBackupScheduleReconciler) reconcileBackup(ctx context.Context, n
 	if err != nil {
 		errors.Append(err)
 		log.Error(err, "failed to create backup", "backupName", backupName)
-		reason := "BackupCreationFailed"
 		message := fmt.Sprintf("failed to create backup: %s", err.Error())
 
-		changed, err := statusMgr.SetConditions(ctx,
-			conditions.NewCondition(airlockv1alpha1.BackupScheduleConditionBackupCreateFailed, metav1.ConditionTrue, reason, message),
-			conditions.NewCondition(airlockv1alpha1.ConditionReady, metav1.ConditionFalse, reason, message),
-		)
+		changed, err := statusMgr.SetCondition(ctx,
+			airlockv1alpha1.ConditionReady, metav1.ConditionFalse, EventReasonBackupCreationFailed, message)
 
 		if err != nil {
 			errors.Append(err)
@@ -288,13 +282,10 @@ func (r *MongoDBBackupScheduleReconciler) reconcileBackup(ctx context.Context, n
 
 	log.Info("Created backup from schedule", "backupName", backupName)
 
-	reason := "BackupCreationSucceeded"
 	message := "Backup created successfully"
 
-	changed, err := statusMgr.SetConditions(ctx,
-		conditions.NewCondition(airlockv1alpha1.BackupScheduleConditionBackupCreateFailed, metav1.ConditionFalse, reason, message),
-		conditions.NewCondition(airlockv1alpha1.ConditionReady, metav1.ConditionTrue, reason, message),
-	)
+	changed, err := statusMgr.SetCondition(ctx,
+		airlockv1alpha1.ConditionReady, metav1.ConditionTrue, EventReasonBackupCreationSucceeded, message)
 
 	if err != nil {
 		errors.Append(err)

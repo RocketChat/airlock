@@ -52,16 +52,8 @@ spec:
                     type: string
                   database:
                     type: string
-                  destinationBucketSecretRef:
-                    description: bucket region accessKeyId secretAccessKey
-                    properties:
-                      name:
-                        type: string
-                      namespace:
-                        type: string
-                    required:
-                    - name
-                    type: object
+                  destinationBucketSecretName:
+                    type: string
                   encryption:
                     properties:
                       ageSecretRef:
@@ -94,7 +86,7 @@ spec:
                 required:
                 - cluster
                 - database
-                - destinationBucketSecretRef
+                - destinationBucketSecretName
                 type: object
               schedule:
                 description: Schedule is a cron expression defining when backups should

@@ -42,24 +42,16 @@ spec:
                 type: string
               database:
                 type: string
-              destinationBucketSecretRef:
-                description: bucket region accessKeyId secretAccessKey
-                properties:
-                  name:
-                    type: string
-                  namespace:
-                    type: string
-                required:
-                - name
-                type: object
               dropDatabase:
                 type: boolean
               prefix:
                 type: string
+              sourceBucketSecretName:
+                type: string
             required:
             - cluster
             - database
-            - destinationBucketSecretRef
+            - sourceBucketSecretName
             type: object
           status:
             description: MongoDBRestoreStatus defines the observed state of MongoDBRestore

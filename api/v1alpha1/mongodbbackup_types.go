@@ -21,16 +21,7 @@ type MongoDBBackupSpec struct {
 	Prefix              string                  `json:"prefix,omitempty"`
 	Encryption          MongoDBBackupEncryption `json:"encryption,omitempty"`
 
-	DestinationBucketSecretRef MongoDBDestinationBucketSecretRef `json:"destinationBucketSecretRef"`
-}
-
-// bucket
-// region
-// accessKeyId
-// secretAccessKey
-type MongoDBDestinationBucketSecretRef struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace,omitempty"`
+	DestinationBucketSecretName string `json:"destinationBucketSecretName"`
 }
 
 type MongoDBBackupStoreRef struct {

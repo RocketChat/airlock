@@ -3,7 +3,7 @@ module github.com/RocketChat/airlock
 go 1.25.3
 
 require (
-	github.com/RocketChat/portmaster-v2 v0.0.0-00010101000000-000000000000
+	github.com/RocketChat/portmaster v0.0.0-20260226080259-6dffe139b48d
 	github.com/aws/aws-sdk-go-v2 v1.41.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0
 	github.com/aws/smithy-go v1.24.0
@@ -111,5 +111,3 @@ require (
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace github.com/RocketChat/portmaster-v2 => github.com/RocketChat/portmaster v0.0.0-20260222130917-c411f78cd2bb

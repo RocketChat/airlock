@@ -1,5 +1,5 @@
-github.com/RocketChat/portmaster v0.0.0-20260222130917-c411f78cd2bb h1:7JXERATqCEzU4S+0/jiyHpDHBjfcYWEGnKd8Imhl3NU=
-github.com/RocketChat/portmaster v0.0.0-20260222130917-c411f78cd2bb/go.mod h1:jCgor1bF5IOYfl+yabtJo0EqocPFbAiO2PEYTSQcQ0U=
+github.com/RocketChat/portmaster v0.0.0-20260226080259-6dffe139b48d h1:XK49hh+EAl+hyY0sK55KECpR/xReyhS12KQm87FCs/s=
+github.com/RocketChat/portmaster v0.0.0-20260226080259-6dffe139b48d/go.mod h1:dquN3IfuxLKR/LiolFqP1qfgtji9z+UXOM1MYy0tQE4=
 github.com/aws/aws-sdk-go-v2 v1.41.1 h1:ABlyEARCDLN034NhxlRUSZr4l71mh+T5KAeGh6cerhU=
 github.com/aws/aws-sdk-go-v2 v1.41.1/go.mod h1:MayyLB8y+buD9hZqkCW3kX1AKq07Y5pXxtgB+rRFhz0=
 github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.4 h1:489krEF9xIGkOaaX3CE/Be2uWjiXrkCH6gUX+bZA/BU=

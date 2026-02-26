@@ -280,7 +280,7 @@ k3d-load-image: docker-build-no-test k3d-cluster k3d-add-storageclass
 	
 .PHONY: k3d-load-portmaster-image
 k3d-load-portmaster-image:
-	k3d image load portmaster-v2:local -c ${NAME}
+	k3d image load portmaster:local -c ${NAME}
 	
 .PHONY: k3d-deploy
 k3d-deploy-airlock: k3d-load-image k3d-load-portmaster-image
@@ -327,7 +327,7 @@ k3d-add-destination-bucket: k3d-cluster
 
 .PHONY: k3d-add-mongodb-cluster
 k3d-add-mongodb-cluster: k3d-cluster
-	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/mongodbcluster.yaml
+	envsubst < ./tests/assets/local-tests/mongodbcluster.yaml | $(KUBECTL_WITH_CONFIG) apply -f -
 	
 .PHONY: k3d-add-mongodb-backup
 k3d-add-mongodb-backup: k3d-cluster k3d-add-mongodb-cluster k3d-add-destination-bucket
@@ -336,3 +336,4 @@ k3d-add-mongodb-backup: k3d-cluster k3d-add-mongodb-cluster k3d-add-destination-
 .PHONY: k3d-add-mongodb-restore
 k3d-add-mongodb-restore: k3d-cluster k3d-add-mongodb-cluster k3d-add-destination-bucket
 	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/mongodbrestore.yaml
+	

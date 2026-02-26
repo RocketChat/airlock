@@ -4,12 +4,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	BackupScheduleConditionBackupCreateFailed         = "BackupCreateFailed"
-	BackupScheduleConditionInternalTaskScheduleFailed = "InternalTaskScheduleFailed"
-	BackupScheduleConditionReady                      = "Ready"
-)
-
 // MongoDBBackupScheduleSpec defines the desired state of MongoDBBackupSchedule
 // +kubebuilder:object:generate=true
 // +k8s:deepcopy-gen=true
