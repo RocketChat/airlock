@@ -30,4 +30,3 @@ jobs:
           version: v1.62
           skip-build-cache: true
           only-new-issues: true
-
