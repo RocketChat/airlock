@@ -2,6 +2,7 @@ package portmaster
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -387,8 +388,11 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 	podSpec := p.getPodSpec()
 
 	if existingJob != nil &&
-		!apiequality.Semantic.DeepDerivative(podSpec, existingJob.Spec.Template.Spec) {
+		p.hasPodSpecDrifted(podSpec, &existingJob.Spec.Template.Spec) {
 		p.logger.Info("pod template spec has changed, deleting existing job")
+		old, _ := json.Marshal(existingJob.Spec.Template.Spec)
+		new, _ := json.Marshal(podSpec)
+		p.logger.Info("old pod spec", "old", string(old), "new", string(new))
 		if err := reconciler.Delete(
 			ctx,
 			existingJob,
@@ -423,6 +427,10 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 	}
 
 	return NoRequeue(), nil
+}
+
+func (p *portmasterRunner) hasPodSpecDrifted(new, old *corev1.PodSpec) bool {
+	return !apiequality.Semantic.DeepDerivative(new, old)
 }
 
 func (p *portmasterRunner) cliArgs() []string {
