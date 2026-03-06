@@ -3,6 +3,7 @@ package conditions
 import (
 	"context"
 
+	"github.com/RocketChat/airlock/pkg/webhook"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -15,15 +16,17 @@ type ConditionsManager struct {
 	statusClient client.StatusClient
 	// fills later since do not need to clone unless needed
 	baseObject client.Object
+	webhook    *webhook.Manager
 }
 
 // we only set status of objects we own, therefore justified to use a different interface than client.Object
 // which means we miss out on core resources
-func NewManager(statusClient client.StatusClient, object client.Object, conditions *[]metav1.Condition) *ConditionsManager {
+func NewManager(statusClient client.StatusClient, object client.Object, conditions *[]metav1.Condition, webhook *webhook.Manager) *ConditionsManager {
 	return &ConditionsManager{
 		conditions:   conditions,
 		object:       object,
 		statusClient: statusClient,
+		webhook:      webhook,
 	}
 }
 
@@ -116,6 +119,16 @@ func (m *ConditionsManager) SetCondition(ctx context.Context, conditionType stri
 
 	if changed {
 		logger.Info("status condition updated", "condition", conditionType, "status", conditionStatus, "reason", reason, "message", message)
+
+		go func() {
+			group := m.object.GetObjectKind().GroupVersionKind().Group
+			kind := m.object.GetObjectKind().GroupVersionKind().Kind
+			condition := conditionType
+			status := string(conditionStatus)
+			if err := m.webhook.Send(ctx, group, kind, condition, status); err != nil {
+				logger.Error(err, "failed to send webhook")
+			}
+		}()
 
 		err = m.patchStatus(ctx)
 

@@ -20,6 +20,7 @@ import (
 	"github.com/RocketChat/airlock/internal/scheduler"
 	"github.com/RocketChat/airlock/pkg/conditions"
 	"github.com/RocketChat/airlock/pkg/reconciler"
+	"github.com/RocketChat/airlock/pkg/webhook"
 )
 
 const (
@@ -66,7 +67,12 @@ func (r *MongoDBBackupScheduleReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, errors.Append(err)
 	}
 
-	statusMgr := conditions.NewManager(r.Client, schedule, &schedule.Status.Conditions)
+	webhookMgr, err := webhook.ParseAnnotations(schedule.Annotations)
+	if err != nil {
+		return ctrl.Result{}, errors.Append(err)
+	}
+
+	statusMgr := conditions.NewManager(r.Client, schedule, &schedule.Status.Conditions, webhookMgr)
 
 	if schedule.DeletionTimestamp != nil && schedule.DeletionTimestamp.IsZero() {
 		// being deleted
@@ -233,8 +239,14 @@ func (r *MongoDBBackupScheduleReconciler) reconcileBackup(ctx context.Context, n
 		return
 	}
 
-	statusMgr := conditions.NewManager(r.Client, schedule, &schedule.Status.Conditions)
-	reconcilerOpts := reconciler.NewOption(r.Client, r.recorder, schedule)
+	webhookMgr, err := webhook.ParseAnnotations(schedule.Annotations)
+	if err != nil {
+		log.Error(err, "failed to parse webhook annotations", "name", schedule.Name)
+		return
+	}
+
+	statusMgr := conditions.NewManager(r.Client, schedule, &schedule.Status.Conditions, webhookMgr)
+	reconcilerOpts := reconciler.NewOption(r.Client, r.recorder, schedule, webhookMgr)
 
 	timestamp := time.Now().Format("20060102150405")
 	backupName := fmt.Sprintf("%s-%s", schedule.Name, timestamp)

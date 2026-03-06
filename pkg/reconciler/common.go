@@ -5,35 +5,18 @@ import (
 	"fmt"
 
 	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
+	"github.com/RocketChat/airlock/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var ErrReconcilerInvalidOptions = fmt.Errorf("invalid options")
-
-func updateObjectGVK(object client.Object, scheme *runtime.Scheme) error {
-	gvk := object.GetObjectKind().GroupVersionKind()
-	if !gvk.Empty() {
-		return nil
-	}
-
-	gvk, err := apiutil.GVKForObject(object, scheme)
-	if err != nil {
-		return err
-	}
-
-	object.GetObjectKind().SetGroupVersionKind(gvk)
-
-	return nil
-}
 
 func wrapInReconcilerError(err error) error {
 	return fmt.Errorf("reconciler error: %w, %w", ErrReconcilerInvalidOptions, err)
@@ -65,7 +48,7 @@ func recordEvent(c client.Client, r record.EventRecorder, owner client.Object, o
 		return
 	}
 
-	updateObjectGVK(object, c.Scheme())
+	utils.UpdateObjectGVK(object, c.Scheme())
 
 	eventReason := reason(object, result, err)
 
@@ -89,7 +72,28 @@ func CreateOrUpdate(ctx context.Context, object client.Object, mutateFn controll
 		return controllerutil.OperationResultNone, err
 	}
 
-	result, err := controllerutil.CreateOrUpdate(ctx, c, object, mutateFn)
+	mf := func() error {
+		utils.UpdateObjectGVK(object, c.Scheme())
+
+		group := object.GetObjectKind().GroupVersionKind().Group
+		kind := object.GetObjectKind().GroupVersionKind().Kind
+
+		if o.Webhook.HasWebhookConfig(group, kind) {
+			annotation := o.Webhook.GetWebhookConfigAnnotation(group, kind)
+			annotations := make(map[string]string)
+			if object.GetAnnotations() != nil {
+				annotations = object.GetAnnotations()
+			}
+			for key, value := range annotation {
+				annotations[key] = value
+			}
+			object.SetAnnotations(annotations)
+		}
+
+		return mutateFn()
+	}
+
+	result, err := controllerutil.CreateOrUpdate(ctx, c, object, mf)
 	if err != nil {
 		recordEvent(c, r, owner, object, result, err)
 
@@ -112,7 +116,28 @@ func CreateOrPatch(ctx context.Context, object client.Object, mutateFn controlle
 		return controllerutil.OperationResultNone, wrapInReconcilerError(err)
 	}
 
-	result, err := controllerutil.CreateOrPatch(ctx, c, object, mutateFn)
+	mf := func() error {
+		utils.UpdateObjectGVK(object, c.Scheme())
+
+		group := object.GetObjectKind().GroupVersionKind().Group
+		kind := object.GetObjectKind().GroupVersionKind().Kind
+
+		if o.Webhook.HasWebhookConfig(group, kind) {
+			annotation := o.Webhook.GetWebhookConfigAnnotation(group, kind)
+			annotations := make(map[string]string)
+			if object.GetAnnotations() != nil {
+				annotations = object.GetAnnotations()
+			}
+			for key, value := range annotation {
+				annotations[key] = value
+			}
+			object.SetAnnotations(annotations)
+		}
+
+		return mutateFn()
+	}
+
+	result, err := controllerutil.CreateOrPatch(ctx, c, object, mf)
 	if err != nil {
 		recordEvent(c, r, owner, object, result, err)
 
@@ -134,6 +159,23 @@ func Create(ctx context.Context, object client.Object, o *Option) error {
 
 	if err := controllerutil.SetControllerReference(owner, object, c.Scheme()); err != nil {
 		return err
+	}
+
+	utils.UpdateObjectGVK(object, c.Scheme())
+
+	group := object.GetObjectKind().GroupVersionKind().Group
+	kind := object.GetObjectKind().GroupVersionKind().Kind
+
+	if o.Webhook.HasWebhookConfig(group, kind) {
+		annotation := o.Webhook.GetWebhookConfigAnnotation(group, kind)
+		annotations := make(map[string]string)
+		if object.GetAnnotations() != nil {
+			annotations = object.GetAnnotations()
+		}
+		for key, value := range annotation {
+			annotations[key] = value
+		}
+		object.SetAnnotations(annotations)
 	}
 
 	err := c.Create(ctx, object)
@@ -164,7 +206,7 @@ func Delete(ctx context.Context, object client.Object, o *Option) error {
 		return fmt.Errorf("object %s/%s is not owned by us, refusing to delete", object.GetNamespace(), object.GetName())
 	}
 
-	_ = updateObjectGVK(object, c.Scheme())
+	_ = utils.UpdateObjectGVK(object, c.Scheme())
 
 	err = client.IgnoreNotFound(c.Delete(ctx, object))
 	if err != nil {

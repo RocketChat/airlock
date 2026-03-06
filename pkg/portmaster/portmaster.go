@@ -147,7 +147,7 @@ func (p *portmasterRunner) ConnectDatabase(ctx context.Context) (Result, *Reconc
 		p.options.database,
 		"", // use default from controller
 		p.waitUntilAccessRequestIsReady,
-		reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner),
+		reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner, p.options.webhookMgr),
 	)
 	if err != nil {
 		p.logger.Error(err, "failed to reconcile access request")
@@ -303,7 +303,7 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 			if err := reconciler.Delete(
 				ctx,
 				existingJob,
-				reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner),
+				reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner, p.options.webhookMgr),
 			); err != nil {
 				return nil, NewRuntimeError(err)
 			}
@@ -376,7 +376,7 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 			p.name,
 			p.namespace,
 			pvcRequest,
-			reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner),
+			reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner, p.options.webhookMgr),
 		)
 		if err != nil {
 			return nil, NewRuntimeError(fmt.Errorf("failed to reconcile persistent volume claim: %w", err))
@@ -396,7 +396,7 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 		if err := reconciler.Delete(
 			ctx,
 			existingJob,
-			reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner),
+			reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner, p.options.webhookMgr),
 		); err != nil {
 			return nil, NewRuntimeError(err)
 		}
@@ -573,7 +573,7 @@ func (p *portmasterRunner) createJob(ctx context.Context, podSpec *corev1.PodSpe
 		},
 	}
 
-	err := reconciler.Create(ctx, job, reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner))
+	err := reconciler.Create(ctx, job, reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner, p.options.webhookMgr))
 	if err != nil {
 		return nil, err
 	}

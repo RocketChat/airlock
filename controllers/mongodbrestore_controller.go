@@ -18,6 +18,7 @@ import (
 	internalerrors "github.com/RocketChat/airlock/internal/errors"
 	"github.com/RocketChat/airlock/pkg/conditions"
 	"github.com/RocketChat/airlock/pkg/portmaster"
+	"github.com/RocketChat/airlock/pkg/webhook"
 )
 
 type MongoDBRestoreReconciler struct {
@@ -54,7 +55,12 @@ func (r *MongoDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	r.statusMgr = conditions.NewManager(r.Client, restore, &restore.Status.Conditions)
+	webhookMgr, err := webhook.ParseAnnotations(restore.Annotations)
+	if err != nil {
+		return ctrl.Result{}, errors.Append(err)
+	}
+
+	r.statusMgr = conditions.NewManager(r.Client, restore, &restore.Status.Conditions, webhookMgr)
 
 	if r.statusMgr.IsConditionTrueAndValid(airlockv1alpha1.ConditionReady) {
 		logger.Info("restore is already complete, skipping reconciliation")

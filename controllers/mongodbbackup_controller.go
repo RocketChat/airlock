@@ -20,6 +20,7 @@ import (
 	"github.com/RocketChat/airlock/internal/metrics"
 	"github.com/RocketChat/airlock/pkg/conditions"
 	"github.com/RocketChat/airlock/pkg/portmaster"
+	"github.com/RocketChat/airlock/pkg/webhook"
 )
 
 const (
@@ -90,7 +91,12 @@ func (r *MongoDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
-	r.statusMgr = conditions.NewManager(r.Client, backup, &backup.Status.Conditions)
+	webhookMgr, err := webhook.ParseAnnotations(backup.Annotations)
+	if err != nil {
+		return ctrl.Result{}, errors.Append(err)
+	}
+
+	r.statusMgr = conditions.NewManager(r.Client, backup, &backup.Status.Conditions, webhookMgr)
 
 	if r.statusMgr.IsConditionTrueAndValid(airlockv1alpha1.ConditionReady) {
 		// spec did not change, job has already finished
