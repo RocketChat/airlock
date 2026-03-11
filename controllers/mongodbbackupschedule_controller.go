@@ -246,7 +246,7 @@ func (r *MongoDBBackupScheduleReconciler) reconcileBackup(ctx context.Context, n
 	}
 
 	statusMgr := conditions.NewManager(r.Client, schedule, &schedule.Status.Conditions, webhookMgr)
-	reconcilerOpts := reconciler.NewOption(r.Client, r.recorder, schedule, webhookMgr)
+	reconcilerOpts := reconciler.NewOption(r.Client, r.recorder, schedule)
 
 	timestamp := time.Now().Format("20060102150405")
 	backupName := fmt.Sprintf("%s-%s", schedule.Name, timestamp)

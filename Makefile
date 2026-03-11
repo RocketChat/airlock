@@ -288,7 +288,7 @@ k3d-deploy-airlock: k3d-load-image k3d-load-portmaster-image
 	
 .PHONY: k3d-deploy-mongo
 k3d-deploy-mongo: k3d-cluster k3d-add-storageclass
-	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/mongo
+	$(KUBECTL_WITH_CONFIG) apply -k ./tests/assets/mongo
 
 .PHONY: k3d-deploy-minio
 k3d-deploy-minio: k3d-cluster k3d-add-storageclass
@@ -337,3 +337,7 @@ k3d-add-mongodb-backup: k3d-cluster k3d-add-mongodb-cluster k3d-add-destination-
 k3d-add-mongodb-restore: k3d-cluster k3d-add-mongodb-cluster k3d-add-destination-bucket
 	$(KUBECTL_WITH_CONFIG) apply -f ./tests/assets/local-tests/mongodbrestore.yaml
 	
+
+.PHONY: k3d-add-sre-test-mongodb-cluster
+k3d-add-sre-test-mongodb-cluster: k3d-cluster
+	envsubst < ./tests/assets/local-tests/mongodbcluster.yaml | $(KUBECTL_WITH_CONFIG) apply -f -

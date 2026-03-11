@@ -6,24 +6,19 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type WebhookConfig struct {
-	Group     string            `yaml:"group"`
-	Kind      string            `yaml:"kind"`
-	Url       string            `yaml:"url"`
-	Headers   map[string]string `yaml:"headers"`
-	Condition string            `yaml:"condition"`
-	Status    string            `yaml:"status"`
-}
-
-type WebhookHttpConfig struct {
-	Url     string            `yaml:"url"`
-	Headers map[string]string `yaml:"headers"`
+	Url       string            `json:"url"`
+	Headers   map[string]string `json:"headers"`
+	Condition string            `json:"condition"`
+	Status    string            `json:"status"`
 }
 
 type Manager struct {
-	config map[string]WebhookHttpConfig
+	config *[]WebhookConfig
 	c      *http.Client
 }
 
@@ -35,7 +30,7 @@ func ParseAnnotations(annotations map[string]string) (*Manager, error) {
 	c, exists := annotations[annotation]
 	if !exists {
 		return &Manager{
-			config: make(map[string]WebhookHttpConfig),
+			config: &config,
 			c:      &http.Client{},
 		}, nil
 	}
@@ -43,29 +38,24 @@ func ParseAnnotations(annotations map[string]string) (*Manager, error) {
 		return nil, err
 	}
 
-	httpConfig := make(map[string]WebhookHttpConfig)
-	for _, entry := range config {
-		httpConfig[httpConfigKey(entry.Group, entry.Kind)] = WebhookHttpConfig{
-			Url:     entry.Url,
-			Headers: entry.Headers,
-		}
-	}
 	return &Manager{
-		config: httpConfig,
+		config: &config,
 		c:      &http.Client{},
 	}, nil
 }
 
-func httpConfigKey(group, kind string) string {
-	return fmt.Sprintf("%s/%s", group, kind)
-}
+func (m *Manager) Send(ctx context.Context, condition, status string) error {
+	logger := log.FromContext(ctx)
 
-func (m *Manager) Send(ctx context.Context, group, kind, condition, status string) error {
-	if !m.IsConditionMet(group, kind, condition, status) {
+	logger.Info("attempting sending webhook", "condition", condition, "status", status)
+
+	config := m.FindMatchingConfig(condition, status)
+	if config == nil {
+		logger.Info("no matching config found, skipping webhook", "condition", condition, "status", status)
 		return nil
 	}
 
-	config := m.GetWebhookConfig(group, kind)
+	logger.Info("found matching config, sending webhook", "url", config.Url)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", config.Url, nil)
 	if err != nil {
@@ -82,44 +72,47 @@ func (m *Manager) Send(ctx context.Context, group, kind, condition, status strin
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	if !isStatusOk(resp.StatusCode) {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	return nil
 }
 
-func (m *Manager) IsConditionMet(group, kind, condition, status string) bool {
-	if !m.HasWebhookConfig(group, kind) {
-		return false
-	}
-	config := m.GetWebhookConfig(group, kind)
-	return config.Condition == condition && config.Status == status
+func isStatusOk(status int) bool {
+	return status >= 200 && status < 300
 }
 
-func (m *Manager) HasWebhookConfig(group, kind string) bool {
-	key := httpConfigKey(group, kind)
-	_, ok := m.config[key]
-	return ok
-}
-
-func (m *Manager) GetWebhookConfig(group, kind string) *WebhookConfig {
-	key := httpConfigKey(group, kind)
-	config := m.config[key]
-	return &WebhookConfig{
-		Group:   group,
-		Kind:    kind,
-		Url:     config.Url,
-		Headers: config.Headers,
-	}
-}
-
-func (m *Manager) GetWebhookConfigAnnotation(group, kind string) map[string]string {
-	if !m.HasWebhookConfig(group, kind) {
+func (m *Manager) FindMatchingConfig(condition, status string) *WebhookConfig {
+	if len(*m.config) == 0 {
 		return nil
 	}
-	config := m.GetWebhookConfig(group, kind)
-	return map[string]string{
-		annotation: fmt.Sprintf(`[{"group": "%s", "kind": "%s", "url": "%s", "headers": %v}]`, group, kind, config.Url, config.Headers),
+	for _, config := range *m.config {
+		if config.Condition == condition && config.Status == status {
+			return &config
+		}
 	}
+	return nil
+}
+
+func NewConfig(url string, headers map[string]string, condition string, status string) *WebhookConfig {
+	return &WebhookConfig{
+		Url:       url,
+		Headers:   headers,
+		Condition: condition,
+		Status:    status,
+	}
+}
+
+func EncodeAnnotation(configs ...*WebhookConfig) (map[string]string, error) {
+	if len(configs) == 0 {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(configs)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		annotation: string(encoded),
+	}, nil
 }

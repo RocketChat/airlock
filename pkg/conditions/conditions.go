@@ -121,11 +121,7 @@ func (m *ConditionsManager) SetCondition(ctx context.Context, conditionType stri
 		logger.Info("status condition updated", "condition", conditionType, "status", conditionStatus, "reason", reason, "message", message)
 
 		go func() {
-			group := m.object.GetObjectKind().GroupVersionKind().Group
-			kind := m.object.GetObjectKind().GroupVersionKind().Kind
-			condition := conditionType
-			status := string(conditionStatus)
-			if err := m.webhook.Send(ctx, group, kind, condition, status); err != nil {
+			if err := m.webhook.Send(ctx, conditionType, string(conditionStatus)); err != nil {
 				logger.Error(err, "failed to send webhook")
 			}
 		}()

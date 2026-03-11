@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/RocketChat/airlock/pkg/conditions"
-	"github.com/RocketChat/airlock/pkg/webhook"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -45,7 +44,6 @@ type Options struct {
 	eventRecorder record.EventRecorder
 	owner         client.Object
 	statusMgr     *conditions.ConditionsManager
-	webhookMgr    *webhook.Manager
 	development   bool
 	image         string
 }
@@ -143,11 +141,6 @@ func WithMode(mode PortmasterMode) OptionProvider {
 	}
 }
 
-func WithWebhookMgr(webhookMgr *webhook.Manager) OptionProvider {
-	return func(options *Options) {
-		options.webhookMgr = webhookMgr
-	}
-}
 func WithWorkingDirectory(workingDirectory string) OptionProvider {
 	return func(options *Options) {
 		options.workingDirectory = workingDirectory

@@ -72,28 +72,7 @@ func CreateOrUpdate(ctx context.Context, object client.Object, mutateFn controll
 		return controllerutil.OperationResultNone, err
 	}
 
-	mf := func() error {
-		utils.UpdateObjectGVK(object, c.Scheme())
-
-		group := object.GetObjectKind().GroupVersionKind().Group
-		kind := object.GetObjectKind().GroupVersionKind().Kind
-
-		if o.Webhook.HasWebhookConfig(group, kind) {
-			annotation := o.Webhook.GetWebhookConfigAnnotation(group, kind)
-			annotations := make(map[string]string)
-			if object.GetAnnotations() != nil {
-				annotations = object.GetAnnotations()
-			}
-			for key, value := range annotation {
-				annotations[key] = value
-			}
-			object.SetAnnotations(annotations)
-		}
-
-		return mutateFn()
-	}
-
-	result, err := controllerutil.CreateOrUpdate(ctx, c, object, mf)
+	result, err := controllerutil.CreateOrUpdate(ctx, c, object, mutateFn)
 	if err != nil {
 		recordEvent(c, r, owner, object, result, err)
 
@@ -116,28 +95,7 @@ func CreateOrPatch(ctx context.Context, object client.Object, mutateFn controlle
 		return controllerutil.OperationResultNone, wrapInReconcilerError(err)
 	}
 
-	mf := func() error {
-		utils.UpdateObjectGVK(object, c.Scheme())
-
-		group := object.GetObjectKind().GroupVersionKind().Group
-		kind := object.GetObjectKind().GroupVersionKind().Kind
-
-		if o.Webhook.HasWebhookConfig(group, kind) {
-			annotation := o.Webhook.GetWebhookConfigAnnotation(group, kind)
-			annotations := make(map[string]string)
-			if object.GetAnnotations() != nil {
-				annotations = object.GetAnnotations()
-			}
-			for key, value := range annotation {
-				annotations[key] = value
-			}
-			object.SetAnnotations(annotations)
-		}
-
-		return mutateFn()
-	}
-
-	result, err := controllerutil.CreateOrPatch(ctx, c, object, mf)
+	result, err := controllerutil.CreateOrPatch(ctx, c, object, mutateFn)
 	if err != nil {
 		recordEvent(c, r, owner, object, result, err)
 
@@ -162,21 +120,6 @@ func Create(ctx context.Context, object client.Object, o *Option) error {
 	}
 
 	utils.UpdateObjectGVK(object, c.Scheme())
-
-	group := object.GetObjectKind().GroupVersionKind().Group
-	kind := object.GetObjectKind().GroupVersionKind().Kind
-
-	if o.Webhook.HasWebhookConfig(group, kind) {
-		annotation := o.Webhook.GetWebhookConfigAnnotation(group, kind)
-		annotations := make(map[string]string)
-		if object.GetAnnotations() != nil {
-			annotations = object.GetAnnotations()
-		}
-		for key, value := range annotation {
-			annotations[key] = value
-		}
-		object.SetAnnotations(annotations)
-	}
 
 	err := c.Create(ctx, object)
 	if err != nil {
