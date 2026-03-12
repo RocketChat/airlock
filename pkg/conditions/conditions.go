@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/RocketChat/airlock/pkg/webhook"
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -121,7 +122,10 @@ func (m *ConditionsManager) SetCondition(ctx context.Context, conditionType stri
 		logger.Info("status condition updated", "condition", conditionType, "status", conditionStatus, "reason", reason, "message", message)
 
 		go func() {
-			if err := m.webhook.Send(ctx, conditionType, string(conditionStatus)); err != nil {
+			// using a new context to avoid cancelling the webhook in case the context is cancelled, as running inside a goroutine
+			// wrapping logger else will lose log context
+			ctx := logr.NewContext(context.Background(), logger)
+			if err := m.webhook.Send(ctx, m.object.GetName(), conditionType, string(conditionStatus)); err != nil {
 				logger.Error(err, "failed to send webhook")
 			}
 		}()
