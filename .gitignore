@@ -39,3 +39,4 @@ tests/k3d/disk/
 .operator-test-suite.mk
 
 .envrc
+tests/

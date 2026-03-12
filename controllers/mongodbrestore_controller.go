@@ -69,20 +69,24 @@ func (r *MongoDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	runner := portmaster.NewPortmasterRunner(
 		ctx,
-		portmaster.WithOwner(restore),
-		portmaster.WithK8sClient(r.Client),
-		portmaster.WithEventRecorder(r.recorder),
-		portmaster.WithCluster(restore.Spec.Cluster),
-		portmaster.WithDatabase(restore.Spec.Database),
-		portmaster.WithBucketSecretName(restore.Spec.SourceBucketSecretName),
-		portmaster.WithRemotePrefix(restore.Spec.Prefix),
-		portmaster.WithMode(portmaster.PortmasterModeImportDatabase),
+		portmaster.PortmasterModeImportDatabase,
+		portmaster.NewWorkConfig(
+			restore.Spec.Cluster,
+			restore.Spec.Database,
+			restore.Spec.Prefix,
+			"/restore",
+			restore.Spec.SourceBucketSecretName,
+		),
+		portmaster.NewReconcilerConfig(
+			r.Client,
+			r.recorder,
+			restore,
+			r.statusMgr,
+		),
+		portmaster.WithWaitTimeout(r.Config.DefaultActionTimeout.Duration),
+		portmaster.WithDevelopment(r.Config.Development),
 		portmaster.WithBucketIgnoreTls(r.Config.BackupConfig.IgnoreTls),
 		portmaster.WithImage(r.Config.BackupConfig.Image),
-		portmaster.WithWaitTimeout(time.Minute*5),
-		portmaster.WithDevelopment(r.Config.Development),
-		portmaster.WithWorkingDirectory("/restore"),
-		portmaster.WithStatusMgr(r.statusMgr),
 	)
 
 	if !r.statusMgr.IsConditionTrueAndValid(portmaster.ConditionJobScheduled) {

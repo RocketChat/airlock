@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -47,13 +46,10 @@ func (r *noRequeueResult) Requeue() bool {
 	return false
 }
 
-func Requeue() Result {
-	return &requeueResult{}
-}
-
-func NoRequeue() Result {
-	return &noRequeueResult{}
-}
+var (
+	Requeue   Result = &requeueResult{}
+	NoRequeue Result = &noRequeueResult{}
+)
 
 // PortmasterRecnciler emulates the cli through steps that needs be performed for the directed mode.
 // hides the details of k8s api.
@@ -86,9 +82,9 @@ const (
 )
 
 type portmasterRunner struct {
-	options *Options
+	*Options
 
-	// constructor
+	// cache these
 	namespace string
 	name      string
 
@@ -99,7 +95,6 @@ type portmasterRunner struct {
 
 	// ConnectBucket
 	s3Client *s3.Client
-	bucket   string
 
 	// constructor
 	logger *logr.Logger
@@ -110,7 +105,7 @@ func (p *portmasterRunner) Status(ctx context.Context) (completed, failed bool, 
 	job, err2 := p.getJob(ctx, p.name)
 	if err2 != nil {
 		if apierrors.IsNotFound(err2) {
-			_, err3 := p.options.statusMgr.SetCondition(ctx, ConditionJobScheduled, metav1.ConditionFalse, "JobNotFound", "Job not found")
+			_, err3 := p.ConditionsManager().SetCondition(ctx, ConditionJobScheduled, metav1.ConditionFalse, "JobNotFound", "Job not found")
 
 			return false, false, NewRuntimeError(errors.Join(err2, err3))
 		}
@@ -120,19 +115,26 @@ func (p *portmasterRunner) Status(ctx context.Context) (completed, failed bool, 
 	return p.hasJobCompleted(job), p.hasJobFailed(job), nil
 }
 
-func NewPortmasterRunner(ctx context.Context, fn ...OptionProvider) PortmasterRecnciler {
-	options := &Options{}
+func NewPortmasterRunner(ctx context.Context, mode PortmasterMode, workConfig *workConfig, reconcilerConfig *reconcillerConfig, fn ...OptionProvider) PortmasterRecnciler {
+	options := &Options{
+		workConfig:       workConfig,
+		reconcilerConfig: reconcilerConfig,
+	}
+	WithMode(mode)(options)
 	for _, fn := range fn {
 		fn(options)
 	}
 
+	options.MustValidate()
+
 	logger := log.FromContext(ctx).WithValues("component", "portmaster")
 
 	return &portmasterRunner{
-		options:   options,
-		logger:    &logger,
-		namespace: options.owner.GetNamespace(),
-		name:      fmt.Sprintf("%s-%s", options.owner.GetName(), options.mode),
+		Options: options,
+		logger:  &logger,
+		// cache these for use over lifetime
+		namespace: options.ReconcileNamespace(),
+		name:      options.ReconcileCommonName(),
 	}
 }
 
@@ -142,12 +144,12 @@ func (p *portmasterRunner) ConnectDatabase(ctx context.Context) (Result, *Reconc
 	accessRequest, result, err := reconciler.ReconcileAccessRequest(
 		ctx,
 		p.name,
-		p.options.owner.GetNamespace(),
-		p.options.cluster,
-		p.options.database,
+		p.namespace,
+		p.Cluster(),
+		p.Database(),
 		"", // use default from controller
 		p.waitUntilAccessRequestIsReady,
-		reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner),
+		p.ReconcilerOptions(),
 	)
 	if err != nil {
 		p.logger.Error(err, "failed to reconcile access request")
@@ -160,7 +162,7 @@ func (p *portmasterRunner) ConnectDatabase(ctx context.Context) (Result, *Reconc
 	}
 
 	if !meta.IsStatusConditionTrue(accessRequest.Status.Conditions, airlockv1alpha1.ConditionReady) {
-		return Requeue(), NewMongoDBAccessRequestReadyTimeoutError(fmt.Errorf("access request is not ready"))
+		return Requeue, NewMongoDBAccessRequestReadyTimeoutError(fmt.Errorf("access request is not ready"))
 	}
 
 	p.recreate = result == controllerutil.OperationResultUpdated
@@ -178,7 +180,7 @@ func (p *portmasterRunner) ConnectDatabase(ctx context.Context) (Result, *Reconc
 
 	data := secret.Data
 
-	connectionString, ok := getStringMapValue(data, "connectionString")
+	connectionString, ok := castMapValueToString(data, "connectionString")
 	if !ok {
 		return nil, NewSecretKeyNotFoundError(fmt.Errorf("connectionString key not found in mongodb access request secret %s", p.accessRequestSecretName))
 	}
@@ -196,11 +198,11 @@ func (p *portmasterRunner) ConnectDatabase(ctx context.Context) (Result, *Reconc
 
 	p.logger.Info("database is ready")
 
-	return NoRequeue(), nil
+	return NoRequeue, nil
 }
 
 func (p *portmasterRunner) waitUntilAccessRequestIsReady(ctx context.Context) error {
-	timeoutCtx, cancel := context.WithTimeout(ctx, p.options.waitTimeout)
+	timeoutCtx, cancel := p.WithTimeout(ctx)
 	defer cancel()
 	if err := wait.PollUntilContextCancel(timeoutCtx, time.Second*5, true, func(ctx context.Context) (done bool, err error) {
 		p.logger.Info("waiting for access request to be ready")
@@ -211,7 +213,8 @@ func (p *portmasterRunner) waitUntilAccessRequestIsReady(ctx context.Context) er
 				Namespace: p.namespace,
 			},
 		}
-		if err := p.options.k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+
+		if err := p.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
 			return false, err
 		}
 
@@ -238,36 +241,38 @@ func (p *portmasterRunner) Cleanup(ctx context.Context) *ReconcilerError {
 
 // ConnectBucket implements [PortmasterRecnciler].
 func (p *portmasterRunner) ConnectBucket(ctx context.Context) (Result, *ReconcilerError) {
-	secret, err := p.getSecret(ctx, p.options.bucketSecretName)
+	bucketSecretName := p.DestinationBucket()
+
+	secret, err := p.getSecret(ctx, bucketSecretName)
 	if err != nil {
 		return nil, NewRuntimeError(err)
 	}
 
 	data := secret.Data
 
-	bucket, ok := getStringMapValue(data, bucketSecretKeys.bucket)
+	bucket, ok := castMapValueToString(data, bucketSecretKeys.bucket)
 	if !ok {
-		return nil, NewSecretKeyNotFoundError(fmt.Errorf("bucket key %s not found in secret %s", bucketSecretKeys.bucket, p.options.bucketSecretName))
+		return nil, NewSecretKeyNotFoundError(fmt.Errorf("bucket key %s not found in secret %s", bucketSecretKeys.bucket, bucketSecretName))
 	}
 
-	region, ok := getStringMapValue(data, bucketSecretKeys.region)
+	region, ok := castMapValueToString(data, bucketSecretKeys.region)
 	if !ok {
-		return nil, NewSecretKeyNotFoundError(fmt.Errorf("region key %s not found in secret %s", bucketSecretKeys.region, p.options.bucketSecretName))
+		return nil, NewSecretKeyNotFoundError(fmt.Errorf("region key %s not found in secret %s", bucketSecretKeys.region, bucketSecretName))
 	}
 
-	accessKeyId, ok := getStringMapValue(data, bucketSecretKeys.accessKeyId)
+	accessKeyId, ok := castMapValueToString(data, bucketSecretKeys.accessKeyId)
 	if !ok {
-		return nil, NewSecretKeyNotFoundError(fmt.Errorf("accessKeyId key %s not found in secret %s", bucketSecretKeys.accessKeyId, p.options.bucketSecretName))
+		return nil, NewSecretKeyNotFoundError(fmt.Errorf("accessKeyId key %s not found in secret %s", bucketSecretKeys.accessKeyId, bucketSecretName))
 	}
 
-	secretAccessKey, ok := getStringMapValue(data, bucketSecretKeys.secretAccessKey)
+	secretAccessKey, ok := castMapValueToString(data, bucketSecretKeys.secretAccessKey)
 	if !ok {
-		return nil, NewSecretKeyNotFoundError(fmt.Errorf("secretAccessKey key %s not found in secret %s", bucketSecretKeys.secretAccessKey, p.options.bucketSecretName))
+		return nil, NewSecretKeyNotFoundError(fmt.Errorf("secretAccessKey key %s not found in secret %s", bucketSecretKeys.secretAccessKey, bucketSecretName))
 	}
 
-	p.s3Client = newS3Client(ctx, region, accessKeyId, secretAccessKey, p.options.bucketIgnoreTls)
+	p.s3Client = newS3Client(ctx, region, accessKeyId, secretAccessKey, p.bucketIgnoreTls)
 
-	bucketCtx, cancel := context.WithTimeout(ctx, p.options.waitTimeout)
+	bucketCtx, cancel := p.WithTimeout(ctx)
 	defer cancel()
 
 	if err := validateBucketExists(
@@ -278,9 +283,7 @@ func (p *portmasterRunner) ConnectBucket(ctx context.Context) (Result, *Reconcil
 		return nil, NewInvalidDestinationBucketError(err)
 	}
 
-	p.bucket = bucket
-
-	return NoRequeue(), nil
+	return NoRequeue, nil
 }
 
 // Run implements [PortmasterRecnciler].
@@ -293,7 +296,7 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 	} else {
 		if !existingJob.DeletionTimestamp.IsZero() {
 			p.logger.Info("job is being deleted, requeuing")
-			return Requeue(), nil
+			return Requeue, nil
 		}
 
 		// this is the happy path
@@ -303,12 +306,12 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 			if err := reconciler.Delete(
 				ctx,
 				existingJob,
-				reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner),
+				p.ReconcilerOptions(),
 			); err != nil {
 				return nil, NewRuntimeError(err)
 			}
 
-			_, err2 := p.options.statusMgr.SetCondition(ctx, ConditionJobScheduled, metav1.ConditionFalse, "JobDeleted", "Stale job deleted")
+			_, err2 := p.ConditionsManager().SetCondition(ctx, ConditionJobScheduled, metav1.ConditionFalse, "JobDeleted", "Stale job deleted")
 			if err2 != nil {
 				return nil, NewRuntimeError(fmt.Errorf("failed to set job deleted condition: %w", err2))
 			}
@@ -316,7 +319,7 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 			p.logger.Info("job deleted, requeuing")
 
 			// allow to be requeued to wait for the deletion to complete
-			return Requeue(), nil
+			return Requeue, nil
 		}
 	}
 
@@ -376,7 +379,7 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 			p.name,
 			p.namespace,
 			pvcRequest,
-			reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner),
+			p.ReconcilerOptions(),
 		)
 		if err != nil {
 			return nil, NewRuntimeError(fmt.Errorf("failed to reconcile persistent volume claim: %w", err))
@@ -396,19 +399,19 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 		if err := reconciler.Delete(
 			ctx,
 			existingJob,
-			reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner),
+			p.ReconcilerOptions(),
 		); err != nil {
 			return nil, NewRuntimeError(err)
 		}
 
-		_, err2 := p.options.statusMgr.SetCondition(ctx, ConditionJobScheduled, metav1.ConditionFalse, "JobDeleted", "Stale job deleted")
+		_, err2 := p.ConditionsManager().SetCondition(ctx, ConditionJobScheduled, metav1.ConditionFalse, "JobDeleted", "Stale job deleted")
 		if err2 != nil {
 			return nil, NewRuntimeError(fmt.Errorf("failed to set job deleted condition: %w", err2))
 		}
 
 		p.logger.Info("job deleted, requeuing")
 
-		return Requeue(), nil
+		return Requeue, nil
 	} else if existingJob == nil {
 		p.logger.Info("creating new job")
 		_, err = p.createJob(ctx, podSpec)
@@ -416,53 +419,21 @@ func (p *portmasterRunner) Reconcile(ctx context.Context) (Result, *ReconcilerEr
 			return nil, NewRuntimeError(err)
 		}
 
-		_, err2 := p.options.statusMgr.SetCondition(ctx, ConditionJobScheduled, metav1.ConditionTrue, "JobCreated", "Job created")
+		_, err2 := p.ConditionsManager().SetCondition(ctx, ConditionJobScheduled, metav1.ConditionTrue, "JobCreated", "Job created")
 		if err2 != nil {
 			return nil, NewRuntimeError(fmt.Errorf("failed to set job created condition: %w", err2))
 		}
 
 		p.logger.Info("job created, requeuing")
 
-		return Requeue(), nil
+		return Requeue, nil
 	}
 
-	return NoRequeue(), nil
+	return NoRequeue, nil
 }
 
 func (p *portmasterRunner) hasPodSpecDrifted(new, old *corev1.PodSpec) bool {
 	return !apiequality.Semantic.DeepDerivative(new, old)
-}
-
-func (p *portmasterRunner) cliArgs() []string {
-	args := []string{
-		"--log-format=json",
-	}
-
-	if p.options.exporting {
-		args = append(args, "export", "--upload")
-	}
-
-	if p.options.importing {
-		args = append(args, "import")
-	}
-
-	if p.options.development {
-		args = append(args, "--log-level=debug")
-	} else {
-		args = append(args, "--log-level=info")
-	}
-
-	if p.options.targetFiles {
-		args = append(args, "--target-files")
-	}
-
-	if p.options.targetDatabase {
-		args = append(args, "--target-database")
-	}
-
-	args = append(args, "--split=true", "-r", p.options.remotePrefix, p.options.workingDirectory)
-
-	return args
 }
 
 func (p *portmasterRunner) getPodSpec() *corev1.PodSpec {
@@ -480,14 +451,14 @@ func (p *portmasterRunner) getPodSpec() *corev1.PodSpec {
 		},
 		{
 			Name:  "DATABASE_NAME",
-			Value: p.options.database,
+			Value: p.Database(),
 		},
 		{
 			Name: "DESTINATION_BUCKET",
 			ValueFrom: &v1.EnvVarSource{
 				SecretKeyRef: &v1.SecretKeySelector{
 					LocalObjectReference: v1.LocalObjectReference{
-						Name: p.options.bucketSecretName,
+						Name: p.DestinationBucket(),
 					},
 					Key: bucketSecretKeys.bucket,
 				},
@@ -498,7 +469,7 @@ func (p *portmasterRunner) getPodSpec() *corev1.PodSpec {
 			ValueFrom: &v1.EnvVarSource{
 				SecretKeyRef: &v1.SecretKeySelector{
 					LocalObjectReference: v1.LocalObjectReference{
-						Name: p.options.bucketSecretName,
+						Name: p.DestinationBucket(),
 					},
 					Key: bucketSecretKeys.region,
 				},
@@ -509,7 +480,7 @@ func (p *portmasterRunner) getPodSpec() *corev1.PodSpec {
 			ValueFrom: &v1.EnvVarSource{
 				SecretKeyRef: &v1.SecretKeySelector{
 					LocalObjectReference: v1.LocalObjectReference{
-						Name: p.options.bucketSecretName,
+						Name: p.DestinationBucket(),
 					},
 					Key: bucketSecretKeys.accessKeyId,
 				},
@@ -520,18 +491,17 @@ func (p *portmasterRunner) getPodSpec() *corev1.PodSpec {
 			ValueFrom: &v1.EnvVarSource{
 				SecretKeyRef: &v1.SecretKeySelector{
 					LocalObjectReference: v1.LocalObjectReference{
-						Name: p.options.bucketSecretName,
+						Name: p.DestinationBucket(),
 					},
 					Key: bucketSecretKeys.secretAccessKey,
 				},
 			},
 		},
 	}
-	mountPath := fmt.Sprintf("%c%s", os.PathSeparator, p.options.mode)
-	mountName := fmt.Sprintf("%s-storage", p.options.mode)
-	args := p.cliArgs()
+	mountName := fmt.Sprintf("%s-storage", p.Mode())
+	args := p.CliArgs()
 	container := v1.Container{
-		Image:           p.options.image,
+		Image:           p.Image(),
 		ImagePullPolicy: v1.PullIfNotPresent,
 		Args:            args,
 		Name:            p.name,
@@ -539,7 +509,7 @@ func (p *portmasterRunner) getPodSpec() *corev1.PodSpec {
 		VolumeMounts: []v1.VolumeMount{
 			{
 				Name:      mountName,
-				MountPath: mountPath,
+				MountPath: p.WorkingDirectory(),
 			},
 		},
 	}
@@ -573,7 +543,7 @@ func (p *portmasterRunner) createJob(ctx context.Context, podSpec *corev1.PodSpe
 		},
 	}
 
-	err := reconciler.Create(ctx, job, reconciler.NewOption(p.options.k8sClient, p.options.eventRecorder, p.options.owner))
+	err := reconciler.Create(ctx, job, p.ReconcilerOptions())
 	if err != nil {
 		return nil, err
 	}
@@ -599,13 +569,13 @@ func (p *portmasterRunner) shouldResizePVC(rawSize uint64, currentSize float64) 
 }
 
 func (p *portmasterRunner) getRequiredDiskSizeEstimate(ctx context.Context) (uint64, error) {
-	if p.options.exporting {
+	if p.IsExporting() {
 		m, err := pmmongo.New(p.databaseUri, "")
 		if err != nil {
 			return 0, err
 		}
 
-		if p.options.targetDatabase {
+		if p.IsTargetDatabase() {
 			size, err := m.GetDatabaseMaxSizeEstimate(ctx)
 			if err != nil {
 				return 0, err
@@ -614,7 +584,7 @@ func (p *portmasterRunner) getRequiredDiskSizeEstimate(ctx context.Context) (uin
 			return size, nil
 		}
 
-		if p.options.targetFiles {
+		if p.IsTargetFiles() {
 			size, err := m.GetTotalFilesDiskUsage(ctx, 4096)
 			if err != nil {
 				return 0, err
@@ -624,23 +594,23 @@ func (p *portmasterRunner) getRequiredDiskSizeEstimate(ctx context.Context) (uin
 		}
 	}
 
-	if p.options.importing {
+	if p.IsImporting() {
 		var manifestName string
 		// for files we will doubble the required disk space before adding overhead
 		var multiplier uint64 = 1
-		if p.options.targetFiles {
+		if p.IsTargetFiles() {
 			manifestName = manifest.FilesManifestName
 			multiplier = 2
 		}
 
-		if p.options.targetDatabase {
+		if p.IsTargetDatabase() {
 			manifestName = manifest.DatabaseManifestName
 		}
 
-		path := filepath.Join(p.options.remotePrefix, manifestName)
+		path := filepath.Join(p.RemotePrefix(), manifestName)
 
 		resp, err := p.s3Client.GetObject(ctx, &s3.GetObjectInput{
-			Bucket: aws.String(p.bucket),
+			Bucket: aws.String(p.DestinationBucket()),
 			Key:    aws.String(path),
 		})
 		if err != nil {
@@ -668,7 +638,7 @@ func (p *portmasterRunner) getSecret(ctx context.Context, name string) (*corev1.
 		},
 	}
 
-	if err := p.options.k8sClient.Get(ctx, client.ObjectKeyFromObject(secret), secret); err != nil {
+	if err := p.Get(ctx, client.ObjectKeyFromObject(secret), secret); err != nil {
 		return nil, err
 	}
 
@@ -683,7 +653,7 @@ func (p *portmasterRunner) getJob(ctx context.Context, name string) (*batchv1.Jo
 		},
 	}
 
-	if err := p.options.k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job); err != nil {
+	if err := p.Get(ctx, client.ObjectKeyFromObject(job), job); err != nil {
 		return nil, err
 	}
 
@@ -698,7 +668,7 @@ func (p *portmasterRunner) getPVC(ctx context.Context, name string) (*v1.Persist
 		},
 	}
 
-	if err := p.options.k8sClient.Get(ctx, client.ObjectKeyFromObject(pvc), pvc); err != nil {
+	if err := p.Get(ctx, client.ObjectKeyFromObject(pvc), pvc); err != nil {
 		return nil, err
 	}
 

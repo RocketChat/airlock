@@ -69,11 +69,7 @@ func validateBucketExists(ctx context.Context, client *s3.Client, bucket string)
 	return nil
 }
 
-func getStringMapValue(m map[string][]byte, key string) (string, bool) {
+func castMapValueToString(m map[string][]byte, key string) (string, bool) {
 	value, ok := m[key]
-	if !ok {
-		return "", false
-	}
-
-	return string(value), true
+	return string(value), ok
 }

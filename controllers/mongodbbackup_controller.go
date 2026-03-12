@@ -107,20 +107,24 @@ func (r *MongoDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	runner := portmaster.NewPortmasterRunner(
 		ctx,
-		portmaster.WithOwner(backup),
-		portmaster.WithK8sClient(r.Client),
-		portmaster.WithEventRecorder(r.recorder),
-		portmaster.WithCluster(backup.Spec.Cluster),
-		portmaster.WithDatabase(backup.Spec.Database),
-		portmaster.WithBucketSecretName(backup.Spec.DestinationBucketSecretName),
-		portmaster.WithRemotePrefix(backup.Spec.Prefix),
-		portmaster.WithMode(portmaster.PortmasterModeExportDatabase),
+		portmaster.PortmasterModeExportDatabase,
+		portmaster.NewWorkConfig(
+			backup.Spec.Cluster,
+			backup.Spec.Database,
+			backup.Spec.Prefix,
+			"/backup",
+			backup.Spec.DestinationBucketSecretName,
+		),
+		portmaster.NewReconcilerConfig(
+			r.Client,
+			r.recorder,
+			backup,
+			r.statusMgr,
+		),
+		portmaster.WithWaitTimeout(r.Config.DefaultActionTimeout.Duration),
+		portmaster.WithDevelopment(r.Config.Development),
 		portmaster.WithBucketIgnoreTls(r.Config.BackupConfig.IgnoreTls),
 		portmaster.WithImage(r.Config.BackupConfig.Image),
-		portmaster.WithWaitTimeout(time.Minute*5),
-		portmaster.WithDevelopment(r.Config.Development),
-		portmaster.WithWorkingDirectory("/backup"),
-		portmaster.WithStatusMgr(r.statusMgr),
 	)
 
 	// spec changed, we need to reconcile everything and run a new backup job
