@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ type WebhookConfig struct {
 	Headers   map[string]string `json:"headers"`
 	Condition string            `json:"condition"`
 	Status    string            `json:"status"`
+	Body      any               `json:"body"`
 }
 
 type Manager struct {
@@ -80,7 +82,13 @@ func (m *Manager) Send(ctx context.Context, resource string, condition, status s
 			for attempt := range 5 {
 				logger.Info("webhook attempt", "attempt", attempt, "url", config.Url)
 
-				req, err := http.NewRequestWithContext(ctx, "POST", config.Url, nil)
+				body, err := json.Marshal(config.Body)
+				if err != nil {
+					errCh <- err
+					return
+				}
+
+				req, err := http.NewRequestWithContext(ctx, "POST", config.Url, bytes.NewReader(body))
 				if err != nil {
 					errCh <- err
 					return
@@ -89,6 +97,8 @@ func (m *Manager) Send(ctx context.Context, resource string, condition, status s
 				for key, value := range config.Headers {
 					req.Header.Set(key, value)
 				}
+
+				req.Header.Set("Content-Type", "application/json")
 
 				resp, err := m.c.Do(req)
 				if err != nil {
@@ -112,12 +122,18 @@ func (m *Manager) Send(ctx context.Context, resource string, condition, status s
 					errCh <- fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 					return
 				}
+
+				break
 			}
 		}()
 
 		select {
 		case err := <-errCh:
-			logger.Error(err, "failed to send webhook")
+			if err != nil {
+				logger.Error(err, "failed to send webhook")
+				return
+			}
+			logger.Info("webhook sent successfully", "condition", condition, "status", status)
 		case <-ctx.Done():
 			logger.Info("context done, skipping webhook", "condition", condition, "status", status, "Err", ctx.Err())
 		}
@@ -148,12 +164,13 @@ func (m *Manager) FindMatchingConfig(condition, status string) *WebhookConfig {
 	return nil
 }
 
-func NewConfig(url string, headers map[string]string, condition string, status string) *WebhookConfig {
+func NewConfig(url string, headers map[string]string, body any, condition string, status string) *WebhookConfig {
 	return &WebhookConfig{
 		Url:       url,
 		Headers:   headers,
 		Condition: condition,
 		Status:    status,
+		Body:      body,
 	}
 }
 
