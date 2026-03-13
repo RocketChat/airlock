@@ -14,7 +14,6 @@ permissions:
 env:
   __W_SRC_REL: go/src/github.com/RocketChat/airlock
 jobs:
-  jobs:
   build:
     name: Build and test
     runs-on: ubuntu-latest
