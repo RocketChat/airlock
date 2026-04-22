@@ -19,7 +19,7 @@ jobs:
     steps:
 
       - name: Checkout cloud ops
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: ${{ env.CLOUD_OPS_REPO }}
           token: ${{ secrets.CI_CLOUD_OPS_PERSONAL_ACCESS_TOKEN }}
@@ -40,7 +40,7 @@ jobs:
           echo "NEW_TAG=$GITHUB_SHA" >> $GITHUB_ENV
 
       - name: Checkout source repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: ${{ env.SOURCE_REPO }}
           path: source-repo
