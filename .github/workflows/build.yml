@@ -8,15 +8,15 @@ on:
       - main
   pull_request:
 
-permissions:
-  contents: read
-  pull-requests: read
+permissions: {}
 env:
   __W_SRC_REL: go/src/github.com/RocketChat/airlock
 jobs:
   build:
     name: Build and test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         platform: [linux/amd64, linux/arm64]
@@ -72,6 +72,7 @@ jobs:
     needs: [build]
     name: Join platform tags
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: Login to Docker Registry
         uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc # v2.2.0
