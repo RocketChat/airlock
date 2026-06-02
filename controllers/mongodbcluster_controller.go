@@ -133,10 +133,34 @@ func (r *MongoDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
 	}
 
+	// FIXME: this is wrong, secret is not owned by us unless we create it. 
 	_ = ctrl.SetControllerReference(mongodbClusterCR, secret, r.Scheme)
 
 	// Test connection and user permissions
 	if mongodbClusterCR.Spec.UseAtlasApi {
+		if mongodbClusterCR.Spec.AtlasClusterName == "" && mongodbClusterCR.Spec.HostTemplate == "" {
+			err = errors.NewBadRequest("atlasClusterName is required when useAtlasApi is true")
+			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
+		}
+
+		updated, err := r.reconcileAtlasClusterConnectionDetails(ctx, mongodbClusterCR, secret)
+		if err != nil {
+			meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
+				metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "AtlasConnectionDetailsInvalid",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					Message:            fmt.Sprintf("Atlas connection details invalid: %s", err.Error()),
+				})
+
+			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, mongodbClusterCR)})
+		}
+
+		if updated {
+			return ctrl.Result{Requeue: true}, nil
+		}
+
 		err = testAtlasConnection(ctx, mongodbClusterCR, secret)
 		if err != nil {
 			meta.SetStatusCondition(&mongodbClusterCR.Status.Conditions,
@@ -564,10 +588,14 @@ func (r *MongoDBClusterReconciler) reconcileAtlasScheduledAutoscaling(ctx contex
 		return err
 	}
 
-	clusterName, err := getClusterNameFromHostTemplate(ctx, client, atlasGroupID, mongodbClusterCR.Spec.HostTemplate)
-	if err != nil {
-		logger.Error(err, "Couldn't find cluster in Atlas")
-		return err
+	clusterName := mongodbClusterCR.Spec.AtlasClusterName
+	if clusterName == "" {
+		var err error
+		clusterName, err = getClusterNameFromHostTemplate(ctx, client, atlasGroupID, mongodbClusterCR.Spec.HostTemplate)
+		if err != nil {
+			logger.Error(err, "Couldn't find cluster in Atlas")
+			return err
+		}
 	}
 
 	clusterDetails, response, err := client.Clusters.Get(ctx, atlasGroupID, clusterName)

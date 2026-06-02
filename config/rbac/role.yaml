@@ -2,7 +2,6 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: manager-role
 rules:
 - apiGroups:
@@ -38,31 +37,6 @@ rules:
   - airlock.cloud.rocket.chat
   resources:
   - mongodbaccessrequests
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - airlock.cloud.rocket.chat
-  resources:
-  - mongodbaccessrequests/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - airlock.cloud.rocket.chat
-  resources:
-  - mongodbaccessrequests/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - airlock.cloud.rocket.chat
-  resources:
   - mongodbclusters
   verbs:
   - create
@@ -75,12 +49,14 @@ rules:
 - apiGroups:
   - airlock.cloud.rocket.chat
   resources:
+  - mongodbaccessrequests/finalizers
   - mongodbclusters/finalizers
   verbs:
   - update
 - apiGroups:
   - airlock.cloud.rocket.chat
   resources:
+  - mongodbaccessrequests/status
   - mongodbclusters/status
   verbs:
   - get

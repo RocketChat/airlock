@@ -5,9 +5,12 @@ import (
 	"strings"
 
 	"github.com/mongodb-forks/digest"
+	"go.mongodb.org/atlas-sdk/v20250312020/admin"
 	"go.mongodb.org/atlas/mongodbatlas"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+
+	airlockv1alpha1 "github.com/RocketChat/airlock/api/v1alpha1"
 )
 
 func getSecretProperty(secret *corev1.Secret, property string) (string, error) {
@@ -46,6 +49,42 @@ func getAtlasClientFromSecret(secret *corev1.Secret) (*mongodbatlas.Client, stri
 	client := mongodbatlas.NewClient(tc)
 
 	return client, atlasGroupID, nil
+}
+
+func getAtlasAdminClientFromSecret(secret *corev1.Secret) (*admin.APIClient, string, error) {
+	atlasPublicKey, err := getSecretProperty(secret, "atlasPublicKey")
+	if err != nil {
+		return nil, "", err
+	}
+
+	atlasPrivateKey, err := getSecretProperty(secret, "atlasPrivateKey")
+	if err != nil {
+		return nil, "", err
+	}
+
+	atlasGroupID, err := getSecretProperty(secret, "atlasGroupID")
+	if err != nil {
+		return nil, "", err
+	}
+
+	client, err := admin.NewClient(admin.UseDigestAuth(atlasPublicKey, atlasPrivateKey))
+	if err != nil {
+		return nil, "", err
+	}
+
+	return client, atlasGroupID, nil
+}
+
+func resolveAtlasClusterName(ctx context.Context, spec airlockv1alpha1.MongoDBClusterSpec, client *mongodbatlas.Client, groupID string) (string, error) {
+	if spec.AtlasClusterName != "" {
+		return spec.AtlasClusterName, nil
+	}
+
+	if spec.HostTemplate != "" {
+		return getClusterNameFromHostTemplate(ctx, client, groupID, spec.HostTemplate)
+	}
+
+	return "", errors.NewBadRequest("atlasClusterName or hostTemplate is required")
 }
 
 func getClusterNameFromHostTemplate(ctx context.Context, client *mongodbatlas.Client, groupID, hostTemplate string) (string, error) {
