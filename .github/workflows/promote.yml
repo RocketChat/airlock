@@ -7,9 +7,13 @@ on:
       - main
       - develop
 
+permissions: {}
+
 jobs:
   promote:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       CLOUD_OPS_REPO: RocketChat/cloud-ops
       IMAGE_NAME: airlock

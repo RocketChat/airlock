@@ -8,13 +8,14 @@ on:
       - master
       - main
   pull_request:
-permissions:
-  contents: read
-  pull-requests: read
+permissions: {}
 jobs:
   golangci:
     name: lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/setup-go@be3c94b385c4f180051c996d336f57a34c397495 # v3.6.1
         with:
