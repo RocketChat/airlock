@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: read
     strategy:
       matrix:
         platform: [linux/amd64, linux/arm64]
