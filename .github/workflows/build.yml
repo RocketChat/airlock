@@ -59,7 +59,7 @@ jobs:
         with:
           connection_id: ${{ secrets.DOCKER_OIDC_ID }}
 
-      - name: Docker login
+      - name: Docker OIDC login
         uses: docker/login-action@v3
         with:
           username: rocketchat
