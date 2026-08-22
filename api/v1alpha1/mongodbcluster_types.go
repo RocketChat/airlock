@@ -32,11 +32,13 @@ type MongoDBClusterSpec struct {
 	ConnectionSecretNamespace string `json:"connectionSecretNamespace,omitempty"`
 
 	// The host with port that clients will receive when requesting credentials.
-	// +kubebuilder:validation:Required
-	HostTemplate string `json:"hostTemplate"` // Obs: no omitempty here to make it required. (the annotation above refuses to work on this particular field for some reason)
+	// If not provided, useAtlasApi and atlasClusterName must be provided.
+	// +kubebuilder:validation:Optional
+	HostTemplate string `json:"hostTemplate,omitempty"`
 
 	// Extra connection string parameters that will be added to the connection string.
-	// +kubebuilder:default=?replicaSet=rs01
+	// If useAtlasApi and atlasClusterName is provided, this will be dynamically populated/updated
+	// +kubebuilder:validation:Optional
 	OptionsTemplate string `json:"optionsTemplate,omitempty"`
 
 	// The prefix used when building the connection string. Defaults to "mongodb"
@@ -48,6 +50,11 @@ type MongoDBClusterSpec struct {
 
 	// If this is set, Atlas API will be used instead of the regular mongo auth path.
 	UseAtlasApi bool `json:"useAtlasApi,omitempty"`
+
+	// The name of the Atlas cluster.
+	// If this is provided, PrefixTemplate, HostTemplate CAN be omitted. Airlock will use the Atlas API to get the details and update the CR.
+	// +kubebuilder:validation:Optional
+	AtlasClusterName string `json:"atlasClusterName,omitempty"`
 
 	// If this is set, along with useAtlasApi, all the kubernetes nodes on the cluster will be added to the Atlas firewall. The only available value right now is "rancher-annotation", which uses the rke.cattle.io/external-ip annotation.
 	AtlasNodeIPAccessStrategy string `json:"atlasNodeIpAccessStrategy,omitempty"`
